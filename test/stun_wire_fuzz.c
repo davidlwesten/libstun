@@ -1,16 +1,16 @@
 /* Generated from stun.pkt -- do not edit.
  *
- * libFuzzer harness for the code in stun_gen.c. Each input is used twice:
+ * libFuzzer harness for the code in stun_wire_gen.c. Each input is used twice:
  * as a packet to decode (decode_<message>), and as a recipe for building
  * a valid message to encode (encode_<message>).
  *
  *   clang -std=c23 -g -fsanitize=fuzzer,address,undefined \
- *       stun_fuzz.c stun_gen.c -o stun_fuzz
+ *       stun_wire_fuzz.c stun_wire_gen.c -o stun_wire_fuzz
  */
 #include <stdlib.h>
 #include <string.h>
 
-#include "stun_gen.h"
+#include "stun_wire_gen.h"
 
 /* Recipe input: choices are read from [p, end); past the end, they are 0. */
 struct src {
@@ -49,13 +49,13 @@ static void *arena_alloc(size_t n) {
 
 static volatile uint8_t sink;
 
-static void walk_bytes(const struct stun_bytes *v) {
+static void walk_bytes(const struct stun_wire_bytes *v) {
     if (v->len != 0)
         sink = v->ptr[v->len - 1];
 }
 
 /* A view into the recipe itself: up to max bytes, as many as remain. */
-static void take_bytes(struct src *in, struct stun_bytes *v, size_t max) {
+static void take_bytes(struct src *in, struct stun_wire_bytes *v, size_t max) {
     size_t n = (size_t)take_u8(in) << 8 | take_u8(in);
     size_t left = (size_t)(in->end - in->p);
     n = n % (max < SIZE_MAX ? max + 1 : SIZE_MAX);
@@ -64,34 +64,34 @@ static void take_bytes(struct src *in, struct stun_bytes *v, size_t max) {
     in->p += v->len;
 }
 
-static void walk_attribute(const struct stun_attribute *v) {
+static void walk_attribute(const struct stun_wire_attribute *v) {
     walk_bytes(&v->value);
 }
 
-static void walk_message(const struct stun_message *v) {
+static void walk_message(const struct stun_wire_message *v) {
     {
-        struct stun_attribute_iter it;
-        struct stun_attribute item;
-        stun_attribute_iter_init(&it, &v->attributes);
-        while (stun_attribute_iter_next(&it, &item))
+        struct stun_wire_attribute_iter it;
+        struct stun_wire_attribute item;
+        stun_wire_attribute_iter_init(&it, &v->attributes);
+        while (stun_wire_attribute_iter_next(&it, &item))
             walk_attribute(&item);
     }
 }
 
-static void walk_ipv4(const struct stun_ipv4 *v) {
+static void walk_ipv4(const struct stun_wire_ipv4 *v) {
     (void)v;
 }
 
-static void walk_ipv6(const struct stun_ipv6 *v) {
+static void walk_ipv6(const struct stun_wire_ipv6 *v) {
     (void)v;
 }
 
-static void walk_xor_mapped_address(const struct stun_xor_mapped_address *v) {
+static void walk_xor_mapped_address(const struct stun_wire_xor_mapped_address *v) {
     switch (v->family) {
-    case STUN_FAMILY_IPV4:
+    case STUN_WIRE_FAMILY_IPV4:
         walk_ipv4(&v->address.ipv4);
         break;
-    case STUN_FAMILY_IPV6:
+    case STUN_WIRE_FAMILY_IPV6:
         walk_ipv6(&v->address.ipv6);
         break;
     default:
@@ -99,44 +99,44 @@ static void walk_xor_mapped_address(const struct stun_xor_mapped_address *v) {
     }
 }
 
-static void build_attribute(struct src *in, struct stun_attribute *v) {
-    v->type = (enum stun_attribute_type)(take_u32(in) & 0xffff);
+static void build_attribute(struct src *in, struct stun_wire_attribute *v) {
+    v->type = (uint16_t)(take_u32(in) & 0xffff);
     take_bytes(in, &v->value, 0xffff);
 }
 
-static void build_message(struct src *in, struct stun_message *v) {
-    v->type = (enum stun_type)(take_u32(in) & 0x3fff);
+static void build_message(struct src *in, struct stun_wire_message *v) {
+    v->type = (uint16_t)(take_u32(in) & 0x3fff);
     take_raw(in, v->transaction_id, 12);
     {
         size_t n = take_u8(in) % 4;
-        struct stun_attribute *items = arena_alloc(n * sizeof *items);
+        struct stun_wire_attribute *items = arena_alloc(n * sizeof *items);
         if (items == NULL)
             n = 0;
         for (size_t i = 0; i < n; i++)
             build_attribute(in, &items[i]);
-        struct stun_attribute_list list = { .items = items, .count = n };
+        struct stun_wire_attribute_list list = { .items = items, .count = n };
         v->attributes = list;
     }
 }
 
-static void build_ipv4(struct src *in, struct stun_ipv4 *v) {
+static void build_ipv4(struct src *in, struct stun_wire_ipv4 *v) {
     take_raw(in, v->addr, 4);
 }
 
-static void build_ipv6(struct src *in, struct stun_ipv6 *v) {
+static void build_ipv6(struct src *in, struct stun_wire_ipv6 *v) {
     take_raw(in, v->addr, 16);
 }
 
-static void build_xor_mapped_address(struct src *in, struct stun_xor_mapped_address *v) {
-    v->family = (enum stun_family)(take_u32(in) & 0xff);
+static void build_xor_mapped_address(struct src *in, struct stun_wire_xor_mapped_address *v) {
+    v->family = (enum stun_wire_family)(take_u32(in) & 0xff);
     v->port = (uint16_t)(take_u32(in) & 0xffff);
     switch (take_u8(in) % 2) {
     case 0:
-        v->family = STUN_FAMILY_IPV4;
+        v->family = STUN_WIRE_FAMILY_IPV4;
         build_ipv4(in, &v->address.ipv4);
         break;
     default:
-        v->family = STUN_FAMILY_IPV6;
+        v->family = STUN_WIRE_FAMILY_IPV6;
         build_ipv6(in, &v->address.ipv6);
         break;
     }
@@ -144,19 +144,19 @@ static void build_xor_mapped_address(struct src *in, struct stun_xor_mapped_addr
 
 /* Decode then encode must give back the input exactly. */
 static void decode_message(const uint8_t *buf, size_t size) {
-    struct stun_message msg;
-    if (stun_message_decode(&msg, buf, size) != STUN_OK)
+    struct stun_wire_message msg;
+    if (stun_wire_message_decode(&msg, buf, size) != STUN_WIRE_OK)
         return;
     walk_message(&msg);
-    if (stun_message_encoded_size(&msg) != size)
+    if (stun_wire_message_encoded_size(&msg) != size)
         abort();
     uint8_t *a = malloc(size != 0 ? size : 1);
     uint8_t *b = malloc(size != 0 ? size : 1);
     size_t n = 0;
-    if (stun_message_encode(&msg, a, size, &n) != STUN_OK || n != size)
+    if (stun_wire_message_encode(&msg, a, size, &n) != STUN_WIRE_OK || n != size)
         abort();
     if (size != 0 &&
-        stun_message_encode(&msg, b, size - 1, &n) != STUN_NOSPACE)
+        stun_wire_message_encode(&msg, b, size - 1, &n) != STUN_WIRE_NOSPACE)
         abort();
     if (memcmp(a, buf, size) != 0)
         abort();
@@ -168,24 +168,24 @@ static void decode_message(const uint8_t *buf, size_t size) {
  * exactly encoded_size bytes, decode, and encode to identical bytes. */
 static void encode_message(const uint8_t *data, size_t len) {
     struct src in = { data, data + len };
-    struct stun_message msg = {};
+    struct stun_wire_message msg = {};
     arena_used = 0;
     build_message(&in, &msg);
-    size_t size = stun_message_encoded_size(&msg);
+    size_t size = stun_wire_message_encoded_size(&msg);
     size_t n = 0;
-    if (size > STUN_MESSAGE_MAX_SIZE) {
-        if (stun_message_encode(&msg, NULL, 0, &n) != STUN_INVALID)
+    if (size > STUN_WIRE_MESSAGE_MAX_SIZE) {
+        if (stun_wire_message_encode(&msg, NULL, 0, &n) != STUN_WIRE_INVALID)
             abort();
         return;
     }
     uint8_t *a = malloc(size != 0 ? size : 1);
     uint8_t *b = malloc(size != 0 ? size : 1);
-    if (stun_message_encode(&msg, a, size, &n) != STUN_OK || n != size)
+    if (stun_wire_message_encode(&msg, a, size, &n) != STUN_WIRE_OK || n != size)
         abort();
-    struct stun_message back;
-    if (stun_message_decode(&back, a, size) != STUN_OK)
+    struct stun_wire_message back;
+    if (stun_wire_message_decode(&back, a, size) != STUN_WIRE_OK)
         abort();
-    if (stun_message_encode(&back, b, size, &n) != STUN_OK || n != size ||
+    if (stun_wire_message_encode(&back, b, size, &n) != STUN_WIRE_OK || n != size ||
         memcmp(a, b, size) != 0)
         abort();
     free(a);
@@ -197,24 +197,24 @@ static void encode_message(const uint8_t *data, size_t len) {
  * input there. It must still have the same length, decode again, and
  * encode to identical bytes. */
 static void decode_xor_mapped_address(const uint8_t *buf, size_t size) {
-    struct stun_xor_mapped_address msg;
-    if (stun_xor_mapped_address_decode(&msg, buf, size) != STUN_OK)
+    struct stun_wire_xor_mapped_address msg;
+    if (stun_wire_xor_mapped_address_decode(&msg, buf, size) != STUN_WIRE_OK)
         return;
     walk_xor_mapped_address(&msg);
-    if (stun_xor_mapped_address_encoded_size(&msg) != size)
+    if (stun_wire_xor_mapped_address_encoded_size(&msg) != size)
         abort();
     uint8_t *a = malloc(size != 0 ? size : 1);
     uint8_t *b = malloc(size != 0 ? size : 1);
     size_t n = 0;
-    if (stun_xor_mapped_address_encode(&msg, a, size, &n) != STUN_OK || n != size)
+    if (stun_wire_xor_mapped_address_encode(&msg, a, size, &n) != STUN_WIRE_OK || n != size)
         abort();
     if (size != 0 &&
-        stun_xor_mapped_address_encode(&msg, b, size - 1, &n) != STUN_NOSPACE)
+        stun_wire_xor_mapped_address_encode(&msg, b, size - 1, &n) != STUN_WIRE_NOSPACE)
         abort();
-    struct stun_xor_mapped_address again;
-    if (stun_xor_mapped_address_decode(&again, a, size) != STUN_OK)
+    struct stun_wire_xor_mapped_address again;
+    if (stun_wire_xor_mapped_address_decode(&again, a, size) != STUN_WIRE_OK)
         abort();
-    if (stun_xor_mapped_address_encode(&again, b, size, &n) != STUN_OK || n != size ||
+    if (stun_wire_xor_mapped_address_encode(&again, b, size, &n) != STUN_WIRE_OK || n != size ||
         memcmp(a, b, size) != 0)
         abort();
     free(a);
@@ -225,24 +225,24 @@ static void decode_xor_mapped_address(const uint8_t *buf, size_t size) {
  * exactly encoded_size bytes, decode, and encode to identical bytes. */
 static void encode_xor_mapped_address(const uint8_t *data, size_t len) {
     struct src in = { data, data + len };
-    struct stun_xor_mapped_address msg = {};
+    struct stun_wire_xor_mapped_address msg = {};
     arena_used = 0;
     build_xor_mapped_address(&in, &msg);
-    size_t size = stun_xor_mapped_address_encoded_size(&msg);
+    size_t size = stun_wire_xor_mapped_address_encoded_size(&msg);
     size_t n = 0;
-    if (size > STUN_XOR_MAPPED_ADDRESS_MAX_SIZE) {
-        if (stun_xor_mapped_address_encode(&msg, NULL, 0, &n) != STUN_INVALID)
+    if (size > STUN_WIRE_XOR_MAPPED_ADDRESS_MAX_SIZE) {
+        if (stun_wire_xor_mapped_address_encode(&msg, NULL, 0, &n) != STUN_WIRE_INVALID)
             abort();
         return;
     }
     uint8_t *a = malloc(size != 0 ? size : 1);
     uint8_t *b = malloc(size != 0 ? size : 1);
-    if (stun_xor_mapped_address_encode(&msg, a, size, &n) != STUN_OK || n != size)
+    if (stun_wire_xor_mapped_address_encode(&msg, a, size, &n) != STUN_WIRE_OK || n != size)
         abort();
-    struct stun_xor_mapped_address back;
-    if (stun_xor_mapped_address_decode(&back, a, size) != STUN_OK)
+    struct stun_wire_xor_mapped_address back;
+    if (stun_wire_xor_mapped_address_decode(&back, a, size) != STUN_WIRE_OK)
         abort();
-    if (stun_xor_mapped_address_encode(&back, b, size, &n) != STUN_OK || n != size ||
+    if (stun_wire_xor_mapped_address_encode(&back, b, size, &n) != STUN_WIRE_OK || n != size ||
         memcmp(a, b, size) != 0)
         abort();
     free(a);

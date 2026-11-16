@@ -1,27 +1,17 @@
-// STUN wire format (RFC 8489). Generates stun_gen.h and stun_gen.c with pktc,
-// see lib/CMakeLists.txt. Only covers what a client sends and receives:
-// Binding requests and their success responses.
-protocol stun;
+// STUN wire format (RFC 8489). Generates stun_wire_gen.h and stun_wire_gen.c
+// with pktc, see lib/CMakeLists.txt. message.h builds on it, so nothing else
+// uses the generated code.
+protocol stun_wire;
 endian big;
 
 // Also the key for XOR-MAPPED-ADDRESS
 const MAGIC_COOKIE: u32 = 0x2112A442;
 
-// Section 5: the 14-bit type interleaves a 12-bit method and a 2-bit class
-enum Type : u14 {
-  BINDING_REQUEST = 0x0001,
-  BINDING_SUCCESS = 0x0101,
-}
-
-// Section 18.3. Values not listed here are kept as they are.
-enum AttributeType : u16 {
-  XOR_MAPPED_ADDRESS = 0x0020,
-}
-
 // Section 5. The length counts the attributes, not the 20-byte header.
 message Message {
   zero: u2 = 0;
-  type: Type;
+  // interleaves a 12-bit method and a 2-bit class
+  type: u14;
   length: u16;
   cookie: u32 = 0x2112A442;
   transaction_id: u8[12];
@@ -30,7 +20,7 @@ message Message {
 
 // Section 14. The length counts the value but not the padding.
 struct Attribute {
-  type: AttributeType;
+  type: u16;
   length: u16;
   value: u8[length] pad 4;
 }

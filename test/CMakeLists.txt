@@ -49,8 +49,8 @@ if(STUN_BUILD_FUZZER)
     message(FATAL_ERROR "STUN_BUILD_FUZZER needs clang for libFuzzer")
   endif()
 
-  add_executable(stun_fuzz stun_fuzz.c
-    ${PROJECT_SOURCE_DIR}/lib/stun_gen.c)
+  add_executable(stun_fuzz stun_wire_fuzz.c
+    ${PROJECT_SOURCE_DIR}/lib/stun_wire_gen.c)
   target_compile_features(stun_fuzz PRIVATE c_std_23)
   target_include_directories(stun_fuzz PRIVATE ${PROJECT_SOURCE_DIR}/lib)
   target_compile_options(stun_fuzz
@@ -59,6 +59,6 @@ if(STUN_BUILD_FUZZER)
       -fsanitize=fuzzer,address,undefined)
   target_link_options(stun_fuzz
     PRIVATE -fsanitize=fuzzer,address,undefined)
-  # stun_fuzz.c is regenerated along with the library's sources
+  # stun_wire_fuzz.c is regenerated along with the library's sources
   add_dependencies(stun_fuzz stun)
 endif()

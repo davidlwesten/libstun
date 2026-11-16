@@ -1,6 +1,6 @@
 stun_add_test_executable(unit_tests
   main.c
-  packet.c
+  message.c
   retransmit.c
   session.c)
 

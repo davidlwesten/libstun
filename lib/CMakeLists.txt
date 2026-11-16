@@ -7,10 +7,10 @@ function(stun_add_library target)
 
   target_sources(${target}
     PRIVATE
-      packet.c
+      message.c
       retransmit.c
       session.c
-      stun_gen.c)
+      stun_wire_gen.c)
 
   target_include_directories(${target} PUBLIC ${PROJECT_SOURCE_DIR}/include)
 
@@ -30,7 +30,7 @@ endif()
 # (https://github.com/davidlwesten/pktc). The output is checked in, so pktc is
 # only needed to change the schema. When it's installed, editing the schema
 # regenerates the code as part of the build, along with pktc's libFuzzer harness
-# for it (test/stun_fuzz.c).
+# for it (test/stun_wire_fuzz.c).
 find_program(PKTC_EXECUTABLE pktc)
 if(PKTC_EXECUTABLE)
   # pktc writes everything into one directory, so generate into the build tree
@@ -38,15 +38,15 @@ if(PKTC_EXECUTABLE)
   set(PKTC_OUTPUT ${CMAKE_CURRENT_BINARY_DIR}/pktc)
   add_custom_command(
     OUTPUT
-      ${CMAKE_CURRENT_SOURCE_DIR}/stun_gen.c
-      ${CMAKE_CURRENT_SOURCE_DIR}/stun_gen.h
-      ${PROJECT_SOURCE_DIR}/test/stun_fuzz.c
+      ${CMAKE_CURRENT_SOURCE_DIR}/stun_wire_gen.c
+      ${CMAKE_CURRENT_SOURCE_DIR}/stun_wire_gen.h
+      ${PROJECT_SOURCE_DIR}/test/stun_wire_fuzz.c
     COMMAND ${CMAKE_COMMAND} -E make_directory ${PKTC_OUTPUT}
     COMMAND ${PKTC_EXECUTABLE} --fuzz -o ${PKTC_OUTPUT}
             ${CMAKE_CURRENT_SOURCE_DIR}/stun.pkt
-    COMMAND ${CMAKE_COMMAND} -E copy ${PKTC_OUTPUT}/stun_gen.c
-            ${PKTC_OUTPUT}/stun_gen.h ${CMAKE_CURRENT_SOURCE_DIR}
-    COMMAND ${CMAKE_COMMAND} -E copy ${PKTC_OUTPUT}/stun_fuzz.c
+    COMMAND ${CMAKE_COMMAND} -E copy ${PKTC_OUTPUT}/stun_wire_gen.c
+            ${PKTC_OUTPUT}/stun_wire_gen.h ${CMAKE_CURRENT_SOURCE_DIR}
+    COMMAND ${CMAKE_COMMAND} -E copy ${PKTC_OUTPUT}/stun_wire_fuzz.c
             ${PROJECT_SOURCE_DIR}/test
     DEPENDS ${CMAKE_CURRENT_SOURCE_DIR}/stun.pkt
     COMMENT "Generating the wire format from stun.pkt"

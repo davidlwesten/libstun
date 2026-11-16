@@ -1,2 +1,2 @@
-lib/stun_gen.*
-test/stun_fuzz.c
+lib/stun_wire_gen.*
+test/stun_wire_fuzz.c

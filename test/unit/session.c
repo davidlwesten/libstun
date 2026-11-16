@@ -55,17 +55,30 @@ static transaction_id_t expect_send(stun_time_ms_t now) {
   return id;
 }
 
-// a Binding success response mapping 192.0.2.1:32853
-static void respond(transaction_id_t id) {
-  uint8_t const header[] = {0x01, 0x01, 0, 12, 0x21, 0x12, 0xA4, 0x42};
-  uint8_t const xor_mapped_address[] = {0x00, 0x20, 0,    8,    0x00, 0x01,
-                                        0xA1, 0x47, 0xE1, 0x12, 0xA6, 0x43};
+// 192.0.2.1:32853
+static uint8_t const xor_mapped_address[] = {
+    0x00, 0x20, 0, 8, 0x00, 0x01, 0xA1, 0x47, 0xE1, 0x12, 0xA6, 0x43};
 
-  uint8_t data[32];
+// a Binding response, or another message of the same shape
+static void receive(uint8_t const type[2],
+                    transaction_id_t id,
+                    size_t size,
+                    uint8_t const attributes[]) {
+  uint8_t data[64];
+  TEST_ASSERT_LESS_OR_EQUAL_size_t(sizeof(data) - 20, size);
+  uint8_t const header[] = {type[0], type[1], 0,    (uint8_t)size,
+                            0x21,    0x12,    0xA4, 0x42};
   memcpy(data, header, sizeof(header));
   memcpy(data + 8, id.bytes, sizeof(id.bytes));
-  memcpy(data + 20, xor_mapped_address, sizeof(xor_mapped_address));
-  stun_session_on_datagram(session, sizeof(data), data);
+  memcpy(data + 20, attributes, size);
+  stun_session_on_datagram(session, 20 + size, data);
+}
+
+static uint8_t const binding_success[] = {0x01, 0x01};
+
+// a Binding success response mapping 192.0.2.1:32853
+static void respond(transaction_id_t id) {
+  receive(binding_success, id, sizeof(xor_mapped_address), xor_mapped_address);
 }
 
 static void expect_timeout(stun_time_ms_t now, stun_time_ms_t deadline) {
@@ -179,6 +192,67 @@ static void test_session_ignores_unknown_transactions() {
   stun_session_end(session);
 }
 
+static void test_session_first_address_counts() {
+  begin(0);
+  auto const handle = request();
+  auto const id = expect_send(0);
+
+  // then 198.51.100.1:32853
+  uint8_t const attributes[] = {
+      0x00, 0x20, 0, 8, 0x00, 0x01, 0xA1, 0x47, 0xE1, 0x12, 0xA6, 0x43,
+      0x00, 0x20, 0, 8, 0x00, 0x01, 0xA1, 0x47, 0xE7, 0x21, 0xC0, 0x43,
+  };
+  receive(binding_success, id, sizeof(attributes), attributes);
+
+  expect_bound(10, handle);
+  stun_session_end(session);
+}
+
+static void test_session_skips_optional_attributes() {
+  begin(0);
+  auto const handle = request();
+  auto const id = expect_send(0);
+
+  uint8_t const attributes[] = {
+      0x80, 0x22, 0, 3, 'a',  'b',  'c',  0, // SOFTWARE, padded
+      0x00, 0x20, 0, 8, 0x00, 0x01, 0xA1, 0x47, 0xE1, 0x12, 0xA6, 0x43,
+  };
+  receive(binding_success, id, sizeof(attributes), attributes);
+
+  expect_bound(10, handle);
+  stun_session_end(session);
+}
+
+static void test_session_ignores_unusable_responses() {
+  begin(0);
+  request();
+  auto const id = expect_send(0);
+
+  // an attribute we'd have to understand
+  uint8_t const required[] = {
+      0x7F, 0xFF, 0,    4,    1,    2,    3,    4,    0x00, 0x20,
+      0,    8,    0x00, 0x01, 0xA1, 0x47, 0xE1, 0x12, 0xA6, 0x43,
+  };
+  receive(binding_success, id, sizeof(required), required);
+
+  // no address
+  receive(binding_success, id, 0, required);
+
+  // an address of an unknown family
+  uint8_t const family[] = {0x00, 0x20, 0,    8,    0x00, 0x03,
+                            0xA1, 0x47, 0xE1, 0x12, 0xA6, 0x43};
+  receive(binding_success, id, sizeof(family), family);
+
+  // other classes and methods with the same transaction ID
+  uint8_t const binding_request[] = {0x00, 0x01};
+  receive(binding_request, id, sizeof(xor_mapped_address), xor_mapped_address);
+  uint8_t const other_success[] = {0x01, 0x02};
+  receive(other_success, id, sizeof(xor_mapped_address), xor_mapped_address);
+
+  expect_timeout(10, 500);
+  stun_session_end(session);
+}
+
 static void test_session_ignores_garbage() {
   begin(0);
   request();
@@ -244,6 +318,9 @@ void session_tests() {
   RUN_TEST(test_session_answer_to_a_retransmission);
   RUN_TEST(test_session_requests_in_flight_together);
   RUN_TEST(test_session_ignores_unknown_transactions);
+  RUN_TEST(test_session_first_address_counts);
+  RUN_TEST(test_session_skips_optional_attributes);
+  RUN_TEST(test_session_ignores_unusable_responses);
   RUN_TEST(test_session_ignores_garbage);
   RUN_TEST(test_session_at_capacity);
   RUN_TEST(test_session_handles_not_reused_right_away);

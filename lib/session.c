@@ -1,6 +1,6 @@
 #include <byo/stun/stun.h>
 
-#include "packet.h"
+#include "message.h"
 #include "retransmit.h"
 
 #include <assert.h>
@@ -155,10 +155,10 @@ stun_event_t stun_session_poll(stun_session_t *session, stun_time_ms_t now) {
       }
       break;
     case STUN_RETRANSMIT_DUE: {
-      auto const size = stun_packet_write_binding_request(
+      auto const size = stun_message_write(
           (view_t){.size = sizeof(session->outgoing_data),
                    .data = session->outgoing_data},
-          &transaction->id);
+          STUN_CLASS_REQUEST, STUN_METHOD_BINDING, &transaction->id);
       stun_retransmit_advance(&transaction->retransmit, now);
       return (stun_event_t){
           .type = STUN_EVENT_SEND,
@@ -175,28 +175,69 @@ stun_event_t stun_session_poll(stun_session_t *session, stun_time_ms_t now) {
                         .timeout = {.deadline = deadline}};
 }
 
+static stun_transaction_t *
+stun_session_find_pending(stun_session_t *session,
+                          stun_message_t const *message) {
+  for (size_t i = 0; i < session->config.capacity; ++i) {
+    auto const transaction = &session->transactions[i];
+    if (transaction->handle != 0 && transaction->state == PENDING &&
+        memcmp(transaction->id.bytes, message->transaction_id.bytes,
+               sizeof(transaction->id.bytes)) == 0) {
+      return transaction;
+    }
+  }
+  return nullptr;
+}
+
+// the first XOR-MAPPED-ADDRESS (section 14), unless there are
+// comprehension-required attributes we don't know
+static stun_optional_socket_address_t
+stun_session_read_binding_response(stun_message_t const *message) {
+  stun_optional_socket_address_t mapped = {.has_value = false};
+  auto it = stun_message_attributes(message);
+  stun_attribute_t attribute;
+  while (stun_attribute_next(&it, &attribute)) {
+    if (attribute.type == STUN_ATTRIBUTE_XOR_MAPPED_ADDRESS) {
+      if (!mapped.has_value) {
+        mapped = stun_attribute_read_xor_mapped_address(
+            &attribute, &message->transaction_id);
+        if (!mapped.has_value) {
+          return mapped;
+        }
+      }
+    } else if (stun_attribute_is_comprehension_required(attribute.type)) {
+      return (stun_optional_socket_address_t){.has_value = false};
+    }
+  }
+  return mapped;
+}
+
 void stun_session_on_datagram(stun_session_t *session,
                               size_t size,
                               uint8_t const data[]) {
   assert(session);
   assert(data);
 
-  auto const response =
-      stun_packet_read_response((const_view_t){.size = size, .data = data});
-  if (!response.has_value) {
+  auto const parsed =
+      stun_message_parse((const_view_t){.size = size, .data = data});
+  if (!parsed.has_value) {
+    return;
+  }
+  auto const message = &parsed.value;
+  if (message->message_class != STUN_CLASS_SUCCESS ||
+      message->method != STUN_METHOD_BINDING) {
     return;
   }
 
   // a late answer to a retransmission finds its transaction done or gone
-  auto const r = &response.value;
-  for (size_t i = 0; i < session->config.capacity; ++i) {
-    auto const transaction = &session->transactions[i];
-    if (transaction->handle != 0 && transaction->state == PENDING &&
-        memcmp(transaction->id.bytes, r->transaction_id.bytes,
-               sizeof(r->transaction_id.bytes)) == 0) {
-      transaction->state = BOUND;
-      transaction->mapped = r->mapped;
-      return;
-    }
+  auto const transaction = stun_session_find_pending(session, message);
+  if (!transaction) {
+    return;
+  }
+
+  auto const mapped = stun_session_read_binding_response(message);
+  if (mapped.has_value) {
+    transaction->state = BOUND;
+    transaction->mapped = mapped.value;
   }
 }
