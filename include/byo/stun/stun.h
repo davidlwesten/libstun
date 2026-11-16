@@ -59,6 +59,9 @@ typedef struct stun_session stun_session_t;
 /**
  * @brief Create a session with one STUN server
  *
+ * The session is a STUN agent, which so far only takes the client's role: it
+ * sends requests and handles their responses.
+ *
  * `config.rng` is required. If `config.allocator` is left zeroed, malloc and
  * free are used.
  *

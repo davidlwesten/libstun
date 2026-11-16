@@ -2,15 +2,16 @@
 
 [![CI](https://github.com/byo-io/libstun/actions/workflows/ci.yml/badge.svg)](https://github.com/byo-io/libstun/actions/workflows/ci.yml)
 
-A client library for Session Traversal Utilities for NAT ([RFC 8489]),
-written in C23.
+A library for Session Traversal Utilities for NAT ([RFC 8489]), written in
+C23.
 
 STUN lets a host behind a NAT ask a server on the other side which address
-and port its packets come from. This library implements the client side: it
-builds requests, retransmits them and tells the application how the server
-answered.
+and port its packets come from. Any STUN agent can be the client in one
+exchange and the server in the next, and this library is meant to be either.
+So far it takes the client's role: it builds requests, retransmits them and
+tells the application how the server answered.
 
-So far it sends Binding requests over UDP and reports the mapped address.
+It sends Binding requests over UDP and reports the mapped address.
 
 [RFC 8489]: https://www.rfc-editor.org/rfc/rfc8489
 
