@@ -3,8 +3,8 @@
 #include <stddef.h>
 #include <stdint.h>
 
-#include "address.h"
 #include "view.h"
+#include <byo/stun/stun.h>
 
 // Reading and writing STUN messages on top of the generated codec, with the
 // rules the schema can't express
