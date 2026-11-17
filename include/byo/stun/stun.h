@@ -102,6 +102,20 @@ typedef struct stun_handle_or_error {
  */
 stun_handle_or_error_t stun_agent_binding_request(stun_agent_t *agent);
 
+/**
+ * @brief The error codes RFC 8489 defines
+ *
+ * Servers can send others too, see stun_event_t::failed.
+ */
+enum {
+  STUN_ERROR_TRY_ALTERNATE = 300,
+  STUN_ERROR_BAD_REQUEST = 400,
+  STUN_ERROR_UNAUTHENTICATED = 401,
+  STUN_ERROR_UNKNOWN_ATTRIBUTE = 420,
+  STUN_ERROR_STALE_NONCE = 438,
+  STUN_ERROR_SERVER_ERROR = 500,
+};
+
 typedef enum stun_failure {
   /// The server didn't answer in time
   STUN_FAILURE_TIMEOUT,

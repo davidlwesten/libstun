@@ -296,7 +296,7 @@ static void test_agent_error_response() {
   };
   receive(binding_error, id, sizeof(attributes), attributes);
 
-  expect_error_response(10, handle, 400);
+  expect_error_response(10, handle, STUN_ERROR_BAD_REQUEST);
   expect_idle(10);
   stun_agent_end(agent);
 }
