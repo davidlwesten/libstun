@@ -1,6 +1,6 @@
 # libstun
 
-[![CI](https://github.com/byo-io/libstun/actions/workflows/ci.yml/badge.svg)](https://github.com/byo-io/libstun/actions/workflows/ci.yml)
+[![CI](https://github.com/davidlwesten/libstun/actions/workflows/ci.yml/badge.svg)](https://github.com/davidlwesten/libstun/actions/workflows/ci.yml)
 
 A library for Session Traversal Utilities for NAT ([RFC 8489]), written in
 C23.
