@@ -29,6 +29,8 @@ typedef struct stun_transaction {
   stun_retransmit_t retransmit;
   /// Once BOUND
   stun_socket_address_t mapped;
+  /// Once FAILED
+  stun_failure_t failure;
 } stun_transaction_t;
 
 struct stun_agent {
@@ -126,7 +128,8 @@ static stun_event_t stun_agent_report(stun_transaction_t *transaction) {
                            .bound = {.handle = transaction->handle,
                                      .mapped = transaction->mapped}}
           : (stun_event_t){.type = STUN_EVENT_FAILED,
-                           .failed = {.handle = transaction->handle}};
+                           .failed = {.handle = transaction->handle,
+                                      .reason = transaction->failure}};
   *transaction = (stun_transaction_t){};
   return event;
 }
@@ -167,6 +170,7 @@ stun_event_t stun_agent_poll(stun_agent_t *agent, stun_time_ms_t now) {
     }
     case STUN_RETRANSMIT_GAVE_UP:
       transaction->state = FAILED;
+      transaction->failure = STUN_FAILURE_TIMEOUT;
       return stun_agent_report(transaction);
     }
   }
@@ -238,5 +242,8 @@ void stun_agent_on_datagram(stun_agent_t *agent,
   if (mapped.has_value) {
     transaction->state = BOUND;
     transaction->mapped = mapped.value;
+  } else {
+    transaction->state = FAILED;
+    transaction->failure = STUN_FAILURE_INVALID_RESPONSE;
   }
 }

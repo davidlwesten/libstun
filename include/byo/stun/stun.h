@@ -102,6 +102,13 @@ typedef struct stun_handle_or_error {
  */
 stun_handle_or_error_t stun_agent_binding_request(stun_agent_t *agent);
 
+typedef enum stun_failure {
+  /// The server didn't answer in time
+  STUN_FAILURE_TIMEOUT,
+  /// The server's answer couldn't be used, e.g. it had no address
+  STUN_FAILURE_INVALID_RESPONSE,
+} stun_failure_t;
+
 /**
  * @brief Something the application has to handle, see stun_agent_poll
  *
@@ -114,7 +121,7 @@ typedef struct stun_event {
     STUN_EVENT_SEND,
     /// The server sees request `bound.handle` coming from `bound.mapped`
     STUN_EVENT_BOUND,
-    /// Request `failed.handle` went unanswered
+    /// Request `failed.handle` failed for `failed.reason`
     STUN_EVENT_FAILED,
     /// Nothing more to do before `timeout.deadline`, see stun_agent_poll
     STUN_EVENT_TIMEOUT,
@@ -133,6 +140,7 @@ typedef struct stun_event {
     } bound;
     struct {
       stun_handle_t handle;
+      stun_failure_t reason;
     } failed;
     struct {
       /// Always later than `now`. Empty if nothing is scheduled, in which case
@@ -161,7 +169,8 @@ stun_event_t stun_agent_poll(stun_agent_t *agent, stun_time_ms_t now);
 /**
  * @brief Hand a datagram received from the server to the agent
  *
- * Datagrams that don't answer a request in flight are ignored.
+ * Datagrams that don't answer a request in flight are ignored. The first
+ * answer to a request decides it.
  *
  * The application should poll the agent afterwards, see stun_agent_poll.
  *

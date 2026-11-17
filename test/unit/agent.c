@@ -103,10 +103,12 @@ static void expect_bound(stun_time_ms_t now, stun_handle_t handle) {
   TEST_ASSERT_EQUAL_UINT16(32853, event.bound.mapped.port);
 }
 
-static void expect_failed(stun_time_ms_t now, stun_handle_t handle) {
+static void
+expect_failed(stun_time_ms_t now, stun_handle_t handle, stun_failure_t reason) {
   auto const event = stun_agent_poll(agent, now);
   TEST_ASSERT_EQUAL(STUN_EVENT_FAILED, event.type);
   TEST_ASSERT_EQUAL_UINT16(handle, event.failed.handle);
+  TEST_ASSERT_EQUAL(reason, event.failed.reason);
 }
 
 static void test_agent_nothing_requested() {
@@ -141,7 +143,7 @@ static void test_agent_retransmits_until_it_gives_up() {
   }
 
   expect_timeout(39499, 39500);
-  expect_failed(39500, handle);
+  expect_failed(39500, handle, STUN_FAILURE_TIMEOUT);
   expect_idle(39500);
   stun_agent_end(agent);
 }
@@ -223,25 +225,54 @@ static void test_agent_skips_optional_attributes() {
   stun_agent_end(agent);
 }
 
-static void test_agent_ignores_unusable_responses() {
+static void test_agent_fails_on_unusable_responses() {
   begin(0);
-  request();
-  auto const id = expect_send(0);
+  auto const required = request();
+  auto const missing = request();
+  auto const family = request();
+  auto const required_id = expect_send(0);
+  auto const missing_id = expect_send(0);
+  auto const family_id = expect_send(0);
 
   // an attribute we'd have to understand
-  uint8_t const required[] = {
+  uint8_t const unknown[] = {
       0x7F, 0xFF, 0,    4,    1,    2,    3,    4,    0x00, 0x20,
       0,    8,    0x00, 0x01, 0xA1, 0x47, 0xE1, 0x12, 0xA6, 0x43,
   };
-  receive(binding_success, id, sizeof(required), required);
+  receive(binding_success, required_id, sizeof(unknown), unknown);
 
   // no address
-  receive(binding_success, id, 0, required);
+  receive(binding_success, missing_id, 0, unknown);
 
   // an address of an unknown family
-  uint8_t const family[] = {0x00, 0x20, 0,    8,    0x00, 0x03,
-                            0xA1, 0x47, 0xE1, 0x12, 0xA6, 0x43};
-  receive(binding_success, id, sizeof(family), family);
+  uint8_t const unknown_family[] = {0x00, 0x20, 0,    8,    0x00, 0x03,
+                                    0xA1, 0x47, 0xE1, 0x12, 0xA6, 0x43};
+  receive(binding_success, family_id, sizeof(unknown_family), unknown_family);
+
+  expect_failed(10, required, STUN_FAILURE_INVALID_RESPONSE);
+  expect_failed(10, missing, STUN_FAILURE_INVALID_RESPONSE);
+  expect_failed(10, family, STUN_FAILURE_INVALID_RESPONSE);
+  expect_idle(10);
+  stun_agent_end(agent);
+}
+
+static void test_agent_first_answer_decides() {
+  begin(0);
+  auto const handle = request();
+  auto const id = expect_send(0);
+  expect_send(500);
+  receive(binding_success, id, 0, xor_mapped_address);
+  respond(id);
+
+  expect_failed(600, handle, STUN_FAILURE_INVALID_RESPONSE);
+  expect_idle(600);
+  stun_agent_end(agent);
+}
+
+static void test_agent_ignores_other_messages() {
+  begin(0);
+  request();
+  auto const id = expect_send(0);
 
   // other classes and methods with the same transaction ID
   uint8_t const binding_request[] = {0x00, 0x01};
@@ -320,7 +351,9 @@ void agent_tests() {
   RUN_TEST(test_agent_ignores_unknown_transactions);
   RUN_TEST(test_agent_first_address_counts);
   RUN_TEST(test_agent_skips_optional_attributes);
-  RUN_TEST(test_agent_ignores_unusable_responses);
+  RUN_TEST(test_agent_fails_on_unusable_responses);
+  RUN_TEST(test_agent_first_answer_decides);
+  RUN_TEST(test_agent_ignores_other_messages);
   RUN_TEST(test_agent_ignores_garbage);
   RUN_TEST(test_agent_at_capacity);
   RUN_TEST(test_agent_handles_not_reused_right_away);

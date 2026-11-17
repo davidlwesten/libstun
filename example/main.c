@@ -157,7 +157,17 @@ int main(int argc, char *argv[]) {
       running = false;
       break;
     case STUN_EVENT_FAILED:
-      fprintf(stderr, "the server didn't answer\n");
+      switch (event.failed.reason) {
+      case STUN_FAILURE_TIMEOUT:
+        fprintf(stderr, "the server didn't answer\n");
+        break;
+      case STUN_FAILURE_INVALID_RESPONSE:
+        fprintf(stderr, "the server's answer couldn't be used\n");
+        break;
+      default:
+        fprintf(stderr, "the request failed\n");
+        break;
+      }
       running = false;
       break;
     case STUN_EVENT_TIMEOUT:
