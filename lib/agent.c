@@ -31,7 +31,7 @@ typedef struct stun_transaction {
   stun_socket_address_t mapped;
 } stun_transaction_t;
 
-struct stun_session {
+struct stun_agent {
   stun_config_t config;
   stun_handle_t last_handle;
   uint8_t outgoing_data[STUN_BINDING_REQUEST_SIZE];
@@ -45,7 +45,7 @@ static void *stun_default_alloc(void * /*ctx*/, size_t size) {
 
 static void stun_default_free(void * /*ctx*/, void *ptr) { free(ptr); }
 
-stun_session_t *stun_session_begin(stun_config_t config) {
+stun_agent_t *stun_agent_begin(stun_config_t config) {
   if (!config.allocator.alloc && !config.allocator.free) {
     config.allocator.alloc = stun_default_alloc;
     config.allocator.free = stun_default_free;
@@ -57,29 +57,29 @@ stun_session_t *stun_session_begin(stun_config_t config) {
     config.capacity = STUN_DEFAULT_CAPACITY;
   }
 
-  stun_session_t *session =
-      ALLOC(config.allocator, sizeof(stun_session_t) +
+  stun_agent_t *agent =
+      ALLOC(config.allocator, sizeof(stun_agent_t) +
                                   config.capacity * sizeof(stun_transaction_t));
-  if (session) {
-    *session = (stun_session_t){.config = config};
+  if (agent) {
+    *agent = (stun_agent_t){.config = config};
     for (size_t i = 0; i < config.capacity; ++i) {
-      session->transactions[i] = (stun_transaction_t){};
+      agent->transactions[i] = (stun_transaction_t){};
     }
   }
 
-  return session;
+  return agent;
 }
 
-void stun_session_end(stun_session_t *session) {
-  assert(session);
-  FREE(session->config.allocator, session);
+void stun_agent_end(stun_agent_t *agent) {
+  assert(agent);
+  FREE(agent->config.allocator, agent);
 }
 
-static stun_transaction_t *stun_session_find(stun_session_t *session,
-                                             stun_handle_t handle) {
-  for (size_t i = 0; i < session->config.capacity; ++i) {
-    if (session->transactions[i].handle == handle) {
-      return &session->transactions[i];
+static stun_transaction_t *stun_agent_find(stun_agent_t *agent,
+                                           stun_handle_t handle) {
+  for (size_t i = 0; i < agent->config.capacity; ++i) {
+    if (agent->transactions[i].handle == handle) {
+      return &agent->transactions[i];
     }
   }
   return nullptr;
@@ -87,30 +87,30 @@ static stun_transaction_t *stun_session_find(stun_session_t *session,
 
 // the next handle that isn't 0 or in use, which there is one of while a slot
 // is free
-static stun_handle_t stun_session_next_handle(stun_session_t *session) {
+static stun_handle_t stun_agent_next_handle(stun_agent_t *agent) {
   do {
-    session->last_handle += 1;
-  } while (session->last_handle == 0 ||
-           stun_session_find(session, session->last_handle));
-  return session->last_handle;
+    agent->last_handle += 1;
+  } while (agent->last_handle == 0 ||
+           stun_agent_find(agent, agent->last_handle));
+  return agent->last_handle;
 }
 
-stun_handle_or_error_t stun_session_binding_request(stun_session_t *session) {
-  assert(session);
+stun_handle_or_error_t stun_agent_binding_request(stun_agent_t *agent) {
+  assert(agent);
 
-  auto const transaction = stun_session_find(session, 0);
+  auto const transaction = stun_agent_find(agent, 0);
   if (!transaction) {
     return (stun_handle_or_error_t){.has_value = false, .error = ENOBUFS};
   }
 
   stun_transaction_id_t id;
-  if (!session->config.rng.fill(session->config.rng.ctx, sizeof(id.bytes),
-                                id.bytes)) {
+  if (!agent->config.rng.fill(agent->config.rng.ctx, sizeof(id.bytes),
+                              id.bytes)) {
     return (stun_handle_or_error_t){.has_value = false, .error = EIO};
   }
 
   *transaction = (stun_transaction_t){
-      .handle = stun_session_next_handle(session),
+      .handle = stun_agent_next_handle(agent),
       .state = PENDING,
       .id = id,
   };
@@ -119,7 +119,7 @@ stun_handle_or_error_t stun_session_binding_request(stun_session_t *session) {
 }
 
 // the event for a transaction that's done, which frees its slot
-static stun_event_t stun_session_report(stun_transaction_t *transaction) {
+static stun_event_t stun_agent_report(stun_transaction_t *transaction) {
   auto const event =
       transaction->state == BOUND
           ? (stun_event_t){.type = STUN_EVENT_BOUND,
@@ -131,17 +131,17 @@ static stun_event_t stun_session_report(stun_transaction_t *transaction) {
   return event;
 }
 
-stun_event_t stun_session_poll(stun_session_t *session, stun_time_ms_t now) {
-  assert(session);
+stun_event_t stun_agent_poll(stun_agent_t *agent, stun_time_ms_t now) {
+  assert(agent);
 
   stun_optional_time_ms_t deadline = {.has_value = false};
-  for (size_t i = 0; i < session->config.capacity; ++i) {
-    auto const transaction = &session->transactions[i];
+  for (size_t i = 0; i < agent->config.capacity; ++i) {
+    auto const transaction = &agent->transactions[i];
     if (transaction->handle == 0) {
       continue;
     }
     if (transaction->state != PENDING) {
-      return stun_session_report(transaction);
+      return stun_agent_report(transaction);
     }
 
     switch (stun_retransmit_poll(&transaction->retransmit, now)) {
@@ -156,18 +156,18 @@ stun_event_t stun_session_poll(stun_session_t *session, stun_time_ms_t now) {
       break;
     case STUN_RETRANSMIT_DUE: {
       auto const size = stun_message_write(
-          (view_t){.size = sizeof(session->outgoing_data),
-                   .data = session->outgoing_data},
+          (view_t){.size = sizeof(agent->outgoing_data),
+                   .data = agent->outgoing_data},
           STUN_CLASS_REQUEST, STUN_METHOD_BINDING, &transaction->id);
       stun_retransmit_advance(&transaction->retransmit, now);
       return (stun_event_t){
           .type = STUN_EVENT_SEND,
-          .send = {.size = size, .data = session->outgoing_data},
+          .send = {.size = size, .data = agent->outgoing_data},
       };
     }
     case STUN_RETRANSMIT_GAVE_UP:
       transaction->state = FAILED;
-      return stun_session_report(transaction);
+      return stun_agent_report(transaction);
     }
   }
 
@@ -176,10 +176,9 @@ stun_event_t stun_session_poll(stun_session_t *session, stun_time_ms_t now) {
 }
 
 static stun_transaction_t *
-stun_session_find_pending(stun_session_t *session,
-                          stun_message_t const *message) {
-  for (size_t i = 0; i < session->config.capacity; ++i) {
-    auto const transaction = &session->transactions[i];
+stun_agent_find_pending(stun_agent_t *agent, stun_message_t const *message) {
+  for (size_t i = 0; i < agent->config.capacity; ++i) {
+    auto const transaction = &agent->transactions[i];
     if (transaction->handle != 0 && transaction->state == PENDING &&
         memcmp(transaction->id.bytes, message->transaction_id.bytes,
                sizeof(transaction->id.bytes)) == 0) {
@@ -192,7 +191,7 @@ stun_session_find_pending(stun_session_t *session,
 // the first XOR-MAPPED-ADDRESS (section 14), unless there are
 // comprehension-required attributes we don't know
 static stun_optional_socket_address_t
-stun_session_read_binding_response(stun_message_t const *message) {
+stun_agent_read_binding_response(stun_message_t const *message) {
   stun_optional_socket_address_t mapped = {.has_value = false};
   auto it = stun_message_attributes(message);
   stun_attribute_t attribute;
@@ -212,10 +211,10 @@ stun_session_read_binding_response(stun_message_t const *message) {
   return mapped;
 }
 
-void stun_session_on_datagram(stun_session_t *session,
-                              size_t size,
-                              uint8_t const data[]) {
-  assert(session);
+void stun_agent_on_datagram(stun_agent_t *agent,
+                            size_t size,
+                            uint8_t const data[]) {
+  assert(agent);
   assert(data);
 
   auto const parsed =
@@ -230,12 +229,12 @@ void stun_session_on_datagram(stun_session_t *session,
   }
 
   // a late answer to a retransmission finds its transaction done or gone
-  auto const transaction = stun_session_find_pending(session, message);
+  auto const transaction = stun_agent_find_pending(agent, message);
   if (!transaction) {
     return;
   }
 
-  auto const mapped = stun_session_read_binding_response(message);
+  auto const mapped = stun_agent_read_binding_response(message);
   if (mapped.has_value) {
     transaction->state = BOUND;
     transaction->mapped = mapped.value;

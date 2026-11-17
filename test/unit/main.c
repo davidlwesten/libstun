@@ -5,7 +5,7 @@ void tearDown() {}
 
 extern void message_tests();
 extern void retransmit_tests();
-extern void session_tests();
+extern void agent_tests();
 
 int main(int argc, char *argv[]) {
   if (!test_runner_init(argc, argv)) {
@@ -16,7 +16,7 @@ int main(int argc, char *argv[]) {
 
   message_tests();
   retransmit_tests();
-  session_tests();
+  agent_tests();
 
   int const result = UNITY_END();
   return test_runner_selected_test_found() ? result : 2;

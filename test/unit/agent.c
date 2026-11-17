@@ -7,7 +7,7 @@
 
 #include "runner.h"
 
-static stun_session_t *session;
+static stun_agent_t *agent;
 
 static uint8_t next_random;
 static bool rng_fails;
@@ -26,13 +26,13 @@ static bool fill(void * /*ctx*/, size_t size, uint8_t data[]) {
 static void begin(uint16_t capacity) {
   next_random = 0;
   rng_fails = false;
-  session = stun_session_begin(
+  agent = stun_agent_begin(
       (stun_config_t){.rng = {.fill = fill}, .capacity = capacity});
-  TEST_ASSERT_NOT_NULL(session);
+  TEST_ASSERT_NOT_NULL(agent);
 }
 
 static stun_handle_t request() {
-  auto const handle = stun_session_binding_request(session);
+  auto const handle = stun_agent_binding_request(agent);
   TEST_ASSERT_TRUE(handle.has_value);
   TEST_ASSERT_NOT_EQUAL(0, handle.value);
   return handle.value;
@@ -44,7 +44,7 @@ typedef struct transaction_id {
 
 // a Binding request, returning its transaction ID
 static transaction_id_t expect_send(stun_time_ms_t now) {
-  auto const event = stun_session_poll(session, now);
+  auto const event = stun_agent_poll(agent, now);
   TEST_ASSERT_EQUAL(STUN_EVENT_SEND, event.type);
   TEST_ASSERT_EQUAL_size_t(20, event.send.size);
   uint8_t const header[] = {0x00, 0x01, 0, 0, 0x21, 0x12, 0xA4, 0x42};
@@ -71,7 +71,7 @@ static void receive(uint8_t const type[2],
   memcpy(data, header, sizeof(header));
   memcpy(data + 8, id.bytes, sizeof(id.bytes));
   memcpy(data + 20, attributes, size);
-  stun_session_on_datagram(session, 20 + size, data);
+  stun_agent_on_datagram(agent, 20 + size, data);
 }
 
 static uint8_t const binding_success[] = {0x01, 0x01};
@@ -82,20 +82,20 @@ static void respond(transaction_id_t id) {
 }
 
 static void expect_timeout(stun_time_ms_t now, stun_time_ms_t deadline) {
-  auto const event = stun_session_poll(session, now);
+  auto const event = stun_agent_poll(agent, now);
   TEST_ASSERT_EQUAL(STUN_EVENT_TIMEOUT, event.type);
   TEST_ASSERT_TRUE(event.timeout.deadline.has_value);
   TEST_ASSERT_EQUAL_UINT64(deadline, event.timeout.deadline.value);
 }
 
 static void expect_idle(stun_time_ms_t now) {
-  auto const event = stun_session_poll(session, now);
+  auto const event = stun_agent_poll(agent, now);
   TEST_ASSERT_EQUAL(STUN_EVENT_TIMEOUT, event.type);
   TEST_ASSERT_FALSE(event.timeout.deadline.has_value);
 }
 
 static void expect_bound(stun_time_ms_t now, stun_handle_t handle) {
-  auto const event = stun_session_poll(session, now);
+  auto const event = stun_agent_poll(agent, now);
   TEST_ASSERT_EQUAL(STUN_EVENT_BOUND, event.type);
   TEST_ASSERT_EQUAL_UINT16(handle, event.bound.handle);
   uint8_t const ip[16] = {[10] = 0xFF, 0xFF, 192, 0, 2, 1};
@@ -104,18 +104,18 @@ static void expect_bound(stun_time_ms_t now, stun_handle_t handle) {
 }
 
 static void expect_failed(stun_time_ms_t now, stun_handle_t handle) {
-  auto const event = stun_session_poll(session, now);
+  auto const event = stun_agent_poll(agent, now);
   TEST_ASSERT_EQUAL(STUN_EVENT_FAILED, event.type);
   TEST_ASSERT_EQUAL_UINT16(handle, event.failed.handle);
 }
 
-static void test_session_nothing_requested() {
+static void test_agent_nothing_requested() {
   begin(0);
   expect_idle(0);
-  stun_session_end(session);
+  stun_agent_end(agent);
 }
 
-static void test_session_binding() {
+static void test_agent_binding() {
   begin(0);
   auto const handle = request();
   auto const id = expect_send(1000);
@@ -124,10 +124,10 @@ static void test_session_binding() {
 
   expect_bound(1010, handle);
   expect_idle(1010);
-  stun_session_end(session);
+  stun_agent_end(agent);
 }
 
-static void test_session_retransmits_until_it_gives_up() {
+static void test_agent_retransmits_until_it_gives_up() {
   begin(0);
   auto const handle = request();
 
@@ -143,10 +143,10 @@ static void test_session_retransmits_until_it_gives_up() {
   expect_timeout(39499, 39500);
   expect_failed(39500, handle);
   expect_idle(39500);
-  stun_session_end(session);
+  stun_agent_end(agent);
 }
 
-static void test_session_answer_to_a_retransmission() {
+static void test_agent_answer_to_a_retransmission() {
   begin(0);
   auto const handle = request();
   auto const id = expect_send(0);
@@ -157,10 +157,10 @@ static void test_session_answer_to_a_retransmission() {
 
   expect_bound(600, handle);
   expect_idle(600);
-  stun_session_end(session);
+  stun_agent_end(agent);
 }
 
-static void test_session_requests_in_flight_together() {
+static void test_agent_requests_in_flight_together() {
   begin(0);
   auto const first = request();
   auto const second = request();
@@ -178,10 +178,10 @@ static void test_session_requests_in_flight_together() {
   respond(first_id);
   expect_bound(20, first);
   expect_idle(20);
-  stun_session_end(session);
+  stun_agent_end(agent);
 }
 
-static void test_session_ignores_unknown_transactions() {
+static void test_agent_ignores_unknown_transactions() {
   begin(0);
   request();
   auto id = expect_send(0);
@@ -189,10 +189,10 @@ static void test_session_ignores_unknown_transactions() {
   respond(id);
 
   expect_timeout(10, 500);
-  stun_session_end(session);
+  stun_agent_end(agent);
 }
 
-static void test_session_first_address_counts() {
+static void test_agent_first_address_counts() {
   begin(0);
   auto const handle = request();
   auto const id = expect_send(0);
@@ -205,10 +205,10 @@ static void test_session_first_address_counts() {
   receive(binding_success, id, sizeof(attributes), attributes);
 
   expect_bound(10, handle);
-  stun_session_end(session);
+  stun_agent_end(agent);
 }
 
-static void test_session_skips_optional_attributes() {
+static void test_agent_skips_optional_attributes() {
   begin(0);
   auto const handle = request();
   auto const id = expect_send(0);
@@ -220,10 +220,10 @@ static void test_session_skips_optional_attributes() {
   receive(binding_success, id, sizeof(attributes), attributes);
 
   expect_bound(10, handle);
-  stun_session_end(session);
+  stun_agent_end(agent);
 }
 
-static void test_session_ignores_unusable_responses() {
+static void test_agent_ignores_unusable_responses() {
   begin(0);
   request();
   auto const id = expect_send(0);
@@ -250,25 +250,25 @@ static void test_session_ignores_unusable_responses() {
   receive(other_success, id, sizeof(xor_mapped_address), xor_mapped_address);
 
   expect_timeout(10, 500);
-  stun_session_end(session);
+  stun_agent_end(agent);
 }
 
-static void test_session_ignores_garbage() {
+static void test_agent_ignores_garbage() {
   begin(0);
   request();
   expect_send(0);
   uint8_t const data[] = {1, 2, 3};
-  stun_session_on_datagram(session, sizeof(data), data);
+  stun_agent_on_datagram(agent, sizeof(data), data);
 
   expect_timeout(10, 500);
-  stun_session_end(session);
+  stun_agent_end(agent);
 }
 
-static void test_session_at_capacity() {
+static void test_agent_at_capacity() {
   begin(2);
   request();
   auto const second = request();
-  auto const full = stun_session_binding_request(session);
+  auto const full = stun_agent_binding_request(agent);
   TEST_ASSERT_FALSE(full.has_value);
   TEST_ASSERT_EQUAL_INT(ENOBUFS, full.error);
 
@@ -276,13 +276,13 @@ static void test_session_at_capacity() {
   expect_send(0);
   auto const id = expect_send(0);
   respond(id);
-  TEST_ASSERT_FALSE(stun_session_binding_request(session).has_value);
+  TEST_ASSERT_FALSE(stun_agent_binding_request(agent).has_value);
   expect_bound(10, second);
   request();
-  stun_session_end(session);
+  stun_agent_end(agent);
 }
 
-static void test_session_handles_not_reused_right_away() {
+static void test_agent_handles_not_reused_right_away() {
   begin(1);
   auto const first = request();
   respond(expect_send(0));
@@ -290,40 +290,40 @@ static void test_session_handles_not_reused_right_away() {
 
   auto const second = request();
   TEST_ASSERT_NOT_EQUAL(first, second);
-  stun_session_end(session);
+  stun_agent_end(agent);
 }
 
-static void test_session_rng_fails() {
+static void test_agent_rng_fails() {
   begin(0);
   rng_fails = true;
-  auto const handle = stun_session_binding_request(session);
+  auto const handle = stun_agent_binding_request(agent);
   TEST_ASSERT_FALSE(handle.has_value);
   TEST_ASSERT_EQUAL_INT(EIO, handle.error);
   expect_idle(0);
-  stun_session_end(session);
+  stun_agent_end(agent);
 }
 
-static void test_session_end_in_flight() {
+static void test_agent_end_in_flight() {
   begin(0);
   request();
   expect_send(0);
   // nothing leaks, which ASan checks
-  stun_session_end(session);
+  stun_agent_end(agent);
 }
 
-void session_tests() {
-  RUN_TEST(test_session_nothing_requested);
-  RUN_TEST(test_session_binding);
-  RUN_TEST(test_session_retransmits_until_it_gives_up);
-  RUN_TEST(test_session_answer_to_a_retransmission);
-  RUN_TEST(test_session_requests_in_flight_together);
-  RUN_TEST(test_session_ignores_unknown_transactions);
-  RUN_TEST(test_session_first_address_counts);
-  RUN_TEST(test_session_skips_optional_attributes);
-  RUN_TEST(test_session_ignores_unusable_responses);
-  RUN_TEST(test_session_ignores_garbage);
-  RUN_TEST(test_session_at_capacity);
-  RUN_TEST(test_session_handles_not_reused_right_away);
-  RUN_TEST(test_session_rng_fails);
-  RUN_TEST(test_session_end_in_flight);
+void agent_tests() {
+  RUN_TEST(test_agent_nothing_requested);
+  RUN_TEST(test_agent_binding);
+  RUN_TEST(test_agent_retransmits_until_it_gives_up);
+  RUN_TEST(test_agent_answer_to_a_retransmission);
+  RUN_TEST(test_agent_requests_in_flight_together);
+  RUN_TEST(test_agent_ignores_unknown_transactions);
+  RUN_TEST(test_agent_first_address_counts);
+  RUN_TEST(test_agent_skips_optional_attributes);
+  RUN_TEST(test_agent_ignores_unusable_responses);
+  RUN_TEST(test_agent_ignores_garbage);
+  RUN_TEST(test_agent_at_capacity);
+  RUN_TEST(test_agent_handles_not_reused_right_away);
+  RUN_TEST(test_agent_rng_fails);
+  RUN_TEST(test_agent_end_in_flight);
 }

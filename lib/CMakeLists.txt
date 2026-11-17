@@ -7,9 +7,9 @@ function(stun_add_library target)
 
   target_sources(${target}
     PRIVATE
+      agent.c
       message.c
       retransmit.c
-      session.c
       stun_wire_gen.c)
 
   target_include_directories(${target} PUBLIC ${PROJECT_SOURCE_DIR}/include)

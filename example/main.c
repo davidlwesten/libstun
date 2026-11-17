@@ -72,9 +72,9 @@ static int connect_to_server(char const *server, char const *port) {
   return fd;
 }
 
-// wait for a datagram until the deadline, if any, and hand it to the session
+// wait for a datagram until the deadline, if any, and hand it to the agent
 static void
-receive(int fd, stun_session_t *session, stun_optional_time_ms_t deadline) {
+receive(int fd, stun_agent_t *agent, stun_optional_time_ms_t deadline) {
   int timeout = -1;
   if (deadline.has_value) {
     auto const current = now();
@@ -102,7 +102,7 @@ receive(int fd, stun_session_t *session, stun_optional_time_ms_t deadline) {
     return;
   }
 
-  stun_session_on_datagram(session, (size_t)size, data);
+  stun_agent_on_datagram(agent, (size_t)size, data);
 }
 
 static void print_address(stun_socket_address_t const *address) {
@@ -127,23 +127,23 @@ int main(int argc, char *argv[]) {
 
   int const fd = connect_to_server(argv[1], argc == 3 ? argv[2] : "3478");
 
-  stun_session_t *const session =
-      stun_session_begin((stun_config_t){.rng = {.fill = fill}});
-  if (!session) {
+  stun_agent_t *const agent =
+      stun_agent_begin((stun_config_t){.rng = {.fill = fill}});
+  if (!agent) {
     fprintf(stderr, "out of memory\n");
     return EXIT_FAILURE;
   }
 
-  auto const request = stun_session_binding_request(session);
+  auto const request = stun_agent_binding_request(agent);
   if (!request.has_value) {
-    fprintf(stderr, "stun_session_binding_request: %s\n",
+    fprintf(stderr, "stun_agent_binding_request: %s\n",
             strerror(request.error));
     return EXIT_FAILURE;
   }
 
   int status = EXIT_FAILURE;
   for (bool running = true; running;) {
-    auto const event = stun_session_poll(session, now());
+    auto const event = stun_agent_poll(agent, now());
     switch (event.type) {
     case STUN_EVENT_SEND:
       if (send(fd, event.send.data, event.send.size, 0) == -1) {
@@ -161,12 +161,12 @@ int main(int argc, char *argv[]) {
       running = false;
       break;
     case STUN_EVENT_TIMEOUT:
-      receive(fd, session, event.timeout.deadline);
+      receive(fd, agent, event.timeout.deadline);
       break;
     }
   }
 
-  stun_session_end(session);
+  stun_agent_end(agent);
   close(fd);
   return status;
 }

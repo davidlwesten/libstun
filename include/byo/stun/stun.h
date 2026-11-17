@@ -50,31 +50,31 @@ typedef struct stun_rng {
 typedef struct stun_config {
   stun_allocator_t allocator;
   stun_rng_t rng;
-  /// How many requests the session can have in flight at once, 0 for 8
+  /// How many requests the agent can have in flight at once, 0 for 8
   uint16_t capacity;
 } stun_config_t;
 
-typedef struct stun_session stun_session_t;
+typedef struct stun_agent stun_agent_t;
 
 /**
- * @brief Create a session with one STUN server
+ * @brief Create a STUN agent that talks to one server
  *
- * The session is a STUN agent, which so far only takes the client's role: it
- * sends requests and handles their responses.
+ * So far the agent only takes the client's role: it sends requests and handles
+ * their responses.
  *
  * `config.rng` is required. If `config.allocator` is left zeroed, malloc and
  * free are used.
  *
- * @param[in] config The session's configuration, copied into the session
+ * @param[in] config The agent's configuration, copied into the agent
  *
- * @returns The session, or nullptr if it couldn't be allocated
+ * @returns The agent, or nullptr if it couldn't be allocated
  */
-stun_session_t *stun_session_begin(stun_config_t config);
+stun_agent_t *stun_agent_begin(stun_config_t config);
 
 /**
- * @brief Free the session, along with any requests still in flight
+ * @brief Free the agent, along with any requests still in flight
  */
-void stun_session_end(stun_session_t *session);
+void stun_agent_end(stun_agent_t *agent);
 
 typedef uint16_t stun_handle_t;
 
@@ -93,17 +93,17 @@ typedef struct stun_handle_or_error {
  * Answered by STUN_EVENT_BOUND or STUN_EVENT_FAILED. Requests go out right
  * away, without waiting for each other.
  *
- * The application should poll the session afterwards, see stun_session_poll.
+ * The application should poll the agent afterwards, see stun_agent_poll.
  *
- * @param[in] session The session to ask
+ * @param[in] agent The agent to ask
  *
- * @returns The handle, or an error (ENOBUFS if the session is at capacity, EIO
+ * @returns The handle, or an error (ENOBUFS if the agent is at capacity, EIO
  *          if the RNG failed)
  */
-stun_handle_or_error_t stun_session_binding_request(stun_session_t *session);
+stun_handle_or_error_t stun_agent_binding_request(stun_agent_t *agent);
 
 /**
- * @brief Something the application has to handle, see stun_session_poll
+ * @brief Something the application has to handle, see stun_agent_poll
  *
  * Later versions may add event types, so ignore any you don't know, e.g. with
  * a default case.
@@ -116,13 +116,13 @@ typedef struct stun_event {
     STUN_EVENT_BOUND,
     /// Request `failed.handle` went unanswered
     STUN_EVENT_FAILED,
-    /// Nothing more to do before `timeout.deadline`, see stun_session_poll
+    /// Nothing more to do before `timeout.deadline`, see stun_agent_poll
     STUN_EVENT_TIMEOUT,
   } type;
   union {
     struct {
       size_t size;
-      /// Points into the session and is only valid until the next poll. Copy
+      /// Points into the agent and is only valid until the next poll. Copy
       /// it if you want to send it later. If sending fails, it's fine to just
       /// drop it, the retransmission is already scheduled.
       uint8_t const *data;
@@ -143,7 +143,7 @@ typedef struct stun_event {
 } stun_event_t;
 
 /**
- * @brief Advance the session and get the next event
+ * @brief Advance the agent and get the next event
  *
  * Call this until it returns STUN_EVENT_TIMEOUT whenever something happens:
  * a datagram arrived, the deadline passed or a request was made. Then wait
@@ -151,27 +151,27 @@ typedef struct stun_event {
  *
  * Every call invalidates the previous event's data (see stun_event_t::send).
  *
- * @param[in] session The session to advance
- * @param[in] now     The current time
+ * @param[in] agent The agent to advance
+ * @param[in] now   The current time
  *
  * @returns The next event to handle
  */
-stun_event_t stun_session_poll(stun_session_t *session, stun_time_ms_t now);
+stun_event_t stun_agent_poll(stun_agent_t *agent, stun_time_ms_t now);
 
 /**
- * @brief Hand a datagram received from the server to the session
+ * @brief Hand a datagram received from the server to the agent
  *
  * Datagrams that don't answer a request in flight are ignored.
  *
- * The application should poll the session afterwards, see stun_session_poll.
+ * The application should poll the agent afterwards, see stun_agent_poll.
  *
- * @param[in] session The session to update
- * @param[in] size    The size of `data`
- * @param[in] data    The datagram's payload
+ * @param[in] agent The agent to update
+ * @param[in] size  The size of `data`
+ * @param[in] data  The datagram's payload
  */
-void stun_session_on_datagram(stun_session_t *session,
-                              size_t size,
-                              uint8_t const data[]);
+void stun_agent_on_datagram(stun_agent_t *agent,
+                            size_t size,
+                            uint8_t const data[]);
 
 #ifdef __cplusplus
 }

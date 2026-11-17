@@ -30,22 +30,22 @@ waiting for anything.
 
 ## Usage
 
-The application makes requests, then calls `stun_session_poll` until it
+The application makes requests, then calls `stun_agent_poll` until it
 returns `STUN_EVENT_TIMEOUT`, handles the events in between and waits for a
 datagram or the deadline:
 
 ```c
 // fill_random writes cryptographically secure random bytes, e.g. with
 // getrandom or arc4random_buf
-stun_session_t *session =
-    stun_session_begin((stun_config_t){.rng = {.fill = fill_random}});
+stun_agent_t *agent =
+    stun_agent_begin((stun_config_t){.rng = {.fill = fill_random}});
 
-auto const request = stun_session_binding_request(session);
+auto const request = stun_agent_binding_request(agent);
 
 while (running) {
   stun_event_t event;
   do {
-    event = stun_session_poll(session, now_ms());
+    event = stun_agent_poll(agent, now_ms());
     switch (event.type) {
     case STUN_EVENT_SEND:
       // to the server, port 3478 unless it says otherwise
@@ -61,13 +61,13 @@ while (running) {
   } while (event.type != STUN_EVENT_TIMEOUT);
 
   // wait for a datagram or until event.timeout.deadline, and hand any datagram
-  // from the server to stun_session_on_datagram(session, size, data)
+  // from the server to stun_agent_on_datagram(agent, size, data)
 }
 
-stun_session_end(session);
+stun_agent_end(agent);
 ```
 
-Requests go out right away, up to the session's capacity (8 by default), and
+Requests go out right away, up to the agent's capacity (8 by default), and
 each is retransmitted as RFC 8489 has it until it's answered or fails 39.5 s
 after it was first sent.
 
