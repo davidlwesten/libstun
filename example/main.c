@@ -164,6 +164,10 @@ int main(int argc, char *argv[]) {
       case STUN_FAILURE_INVALID_RESPONSE:
         fprintf(stderr, "the server's answer couldn't be used\n");
         break;
+      case STUN_FAILURE_ERROR_RESPONSE:
+        fprintf(stderr, "the server answered with error %u\n",
+                event.failed.error_code);
+        break;
       default:
         fprintf(stderr, "the request failed\n");
         break;

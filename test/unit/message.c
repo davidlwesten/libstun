@@ -205,6 +205,51 @@ static void test_attribute_xor_mapped_address_invalid() {
           .has_value);
 }
 
+static stun_optional_error_code_t read_error_code(size_t size,
+                                                  uint8_t const value[]) {
+  stun_attribute_t const attribute = {
+      .type = STUN_ATTRIBUTE_ERROR_CODE,
+      .value = {.size = size, .data = value},
+  };
+  return stun_attribute_read_error_code(&attribute);
+}
+
+static void test_attribute_error_code() {
+  uint8_t const bad_request[] = {0,   0,   4,   0,   'B', 'a', 'd', ' ',
+                                 'R', 'e', 'q', 'u', 'e', 's', 't'};
+  auto error_code = read_error_code(sizeof(bad_request), bad_request);
+  TEST_ASSERT_TRUE(error_code.has_value);
+  TEST_ASSERT_EQUAL_UINT16(400, error_code.value);
+
+  // the reserved bits are ignored, and the reason phrase can be empty
+  uint8_t const reserved[] = {0xFF, 0xFF, 0xF8 | 6, 99};
+  error_code = read_error_code(sizeof(reserved), reserved);
+  TEST_ASSERT_TRUE(error_code.has_value);
+  TEST_ASSERT_EQUAL_UINT16(699, error_code.value);
+
+  uint8_t const lowest[] = {0, 0, 3, 0};
+  error_code = read_error_code(sizeof(lowest), lowest);
+  TEST_ASSERT_TRUE(error_code.has_value);
+  TEST_ASSERT_EQUAL_UINT16(300, error_code.value);
+}
+
+static void test_attribute_error_code_invalid() {
+  uint8_t const class_too_low[] = {0, 0, 2, 0};
+  TEST_ASSERT_FALSE(
+      read_error_code(sizeof(class_too_low), class_too_low).has_value);
+
+  uint8_t const class_too_high[] = {0, 0, 7, 0};
+  TEST_ASSERT_FALSE(
+      read_error_code(sizeof(class_too_high), class_too_high).has_value);
+
+  uint8_t const number_too_high[] = {0, 0, 4, 100};
+  TEST_ASSERT_FALSE(
+      read_error_code(sizeof(number_too_high), number_too_high).has_value);
+
+  uint8_t const too_short[] = {0, 0, 4};
+  TEST_ASSERT_FALSE(read_error_code(sizeof(too_short), too_short).has_value);
+}
+
 void message_tests() {
   RUN_TEST(test_message_write);
   RUN_TEST(test_message_write_interleaves_class_and_method);
@@ -218,4 +263,6 @@ void message_tests() {
   RUN_TEST(test_attribute_xor_mapped_address_v4);
   RUN_TEST(test_attribute_xor_mapped_address_v6);
   RUN_TEST(test_attribute_xor_mapped_address_invalid);
+  RUN_TEST(test_attribute_error_code);
+  RUN_TEST(test_attribute_error_code_invalid);
 }

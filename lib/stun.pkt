@@ -49,3 +49,11 @@ struct Ipv4 {
 struct Ipv6 {
   addr: u8[16];
 }
+
+// The value of ERROR-CODE. The code is class * 100 + number.
+message ErrorCode {
+  _: u21;
+  class: u3;
+  number: u8;
+  reason: u8[..];
+}

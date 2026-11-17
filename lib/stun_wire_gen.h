@@ -101,6 +101,16 @@ struct stun_wire_xor_mapped_address {
 constexpr size_t STUN_WIRE_XOR_MAPPED_ADDRESS_MIN_SIZE = 8;
 constexpr size_t STUN_WIRE_XOR_MAPPED_ADDRESS_MAX_SIZE = 20;
 
+/* message ErrorCode { _: u21; class: u3; number: u8; reason: u8[..]; } */
+struct stun_wire_error_code {
+    uint8_t class;
+    uint8_t number;
+    struct stun_wire_bytes reason;
+};
+
+/* Size limits of an encoded ErrorCode, in bytes. */
+constexpr size_t STUN_WIRE_ERROR_CODE_MIN_SIZE = 4;
+
 /* Decode one Message. Views in *out borrow buf: keep buf alive and
  * unchanged while using them. */
 stun_wire_status stun_wire_message_decode(struct stun_wire_message *out,
@@ -127,6 +137,20 @@ stun_wire_status stun_wire_xor_mapped_address_encode(
 /* Exact number of bytes stun_wire_xor_mapped_address_encode will write, if it succeeds. */
 size_t stun_wire_xor_mapped_address_encoded_size(
     const struct stun_wire_xor_mapped_address *in);
+
+/* Decode one ErrorCode. Views in *out borrow buf: keep buf alive and
+ * unchanged while using them. */
+stun_wire_status stun_wire_error_code_decode(struct stun_wire_error_code *out,
+                                             const uint8_t *buf, size_t len);
+
+/* Encode into buf[0..cap). On STUN_WIRE_OK, *written is the encoded length. */
+stun_wire_status stun_wire_error_code_encode(
+    const struct stun_wire_error_code *in, uint8_t *buf, size_t cap,
+    size_t *written);
+
+/* Exact number of bytes stun_wire_error_code_encode will write, if it succeeds. */
+size_t stun_wire_error_code_encoded_size(
+    const struct stun_wire_error_code *in);
 
 /* Iterate a decoded Attribute[..]. Decode already validated it,
  * so next() only returns false at the end. */

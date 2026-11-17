@@ -31,6 +31,8 @@ typedef struct stun_transaction {
   stun_socket_address_t mapped;
   /// Once FAILED
   stun_failure_t failure;
+  /// Once FAILED with STUN_FAILURE_ERROR_RESPONSE
+  uint16_t error_code;
 } stun_transaction_t;
 
 struct stun_agent {
@@ -129,9 +131,16 @@ static stun_event_t stun_agent_report(stun_transaction_t *transaction) {
                                      .mapped = transaction->mapped}}
           : (stun_event_t){.type = STUN_EVENT_FAILED,
                            .failed = {.handle = transaction->handle,
-                                      .reason = transaction->failure}};
+                                      .reason = transaction->failure,
+                                      .error_code = transaction->error_code}};
   *transaction = (stun_transaction_t){};
   return event;
+}
+
+static void stun_agent_fail(stun_transaction_t *transaction,
+                            stun_failure_t failure) {
+  transaction->state = FAILED;
+  transaction->failure = failure;
 }
 
 stun_event_t stun_agent_poll(stun_agent_t *agent, stun_time_ms_t now) {
@@ -169,8 +178,7 @@ stun_event_t stun_agent_poll(stun_agent_t *agent, stun_time_ms_t now) {
       };
     }
     case STUN_RETRANSMIT_GAVE_UP:
-      transaction->state = FAILED;
-      transaction->failure = STUN_FAILURE_TIMEOUT;
+      stun_agent_fail(transaction, STUN_FAILURE_TIMEOUT);
       return stun_agent_report(transaction);
     }
   }
@@ -192,27 +200,25 @@ stun_agent_find_pending(stun_agent_t *agent, stun_message_t const *message) {
   return nullptr;
 }
 
-// the first XOR-MAPPED-ADDRESS (section 14), unless there are
-// comprehension-required attributes we don't know
-static stun_optional_socket_address_t
-stun_agent_read_binding_response(stun_message_t const *message) {
-  stun_optional_socket_address_t mapped = {.has_value = false};
+// the first attribute of `type`, unless the message has other
+// comprehension-required attributes, which we don't know
+static bool stun_agent_find_attribute(stun_message_t const *message,
+                                      uint16_t type,
+                                      stun_attribute_t *found) {
+  bool has_found = false;
   auto it = stun_message_attributes(message);
   stun_attribute_t attribute;
   while (stun_attribute_next(&it, &attribute)) {
-    if (attribute.type == STUN_ATTRIBUTE_XOR_MAPPED_ADDRESS) {
-      if (!mapped.has_value) {
-        mapped = stun_attribute_read_xor_mapped_address(
-            &attribute, &message->transaction_id);
-        if (!mapped.has_value) {
-          return mapped;
-        }
+    if (attribute.type == type) {
+      if (!has_found) {
+        *found = attribute;
+        has_found = true;
       }
     } else if (stun_attribute_is_comprehension_required(attribute.type)) {
-      return (stun_optional_socket_address_t){.has_value = false};
+      return false;
     }
   }
-  return mapped;
+  return has_found;
 }
 
 void stun_agent_on_datagram(stun_agent_t *agent,
@@ -227,7 +233,8 @@ void stun_agent_on_datagram(stun_agent_t *agent,
     return;
   }
   auto const message = &parsed.value;
-  if (message->message_class != STUN_CLASS_SUCCESS ||
+  if ((message->message_class != STUN_CLASS_SUCCESS &&
+       message->message_class != STUN_CLASS_ERROR) ||
       message->method != STUN_METHOD_BINDING) {
     return;
   }
@@ -238,12 +245,30 @@ void stun_agent_on_datagram(stun_agent_t *agent,
     return;
   }
 
-  auto const mapped = stun_agent_read_binding_response(message);
-  if (mapped.has_value) {
-    transaction->state = BOUND;
-    transaction->mapped = mapped.value;
+  stun_attribute_t attribute;
+  if (message->message_class == STUN_CLASS_SUCCESS) {
+    auto const mapped =
+        stun_agent_find_attribute(message, STUN_ATTRIBUTE_XOR_MAPPED_ADDRESS,
+                                  &attribute)
+            ? stun_attribute_read_xor_mapped_address(&attribute,
+                                                     &message->transaction_id)
+            : (stun_optional_socket_address_t){.has_value = false};
+    if (mapped.has_value) {
+      transaction->state = BOUND;
+      transaction->mapped = mapped.value;
+      return;
+    }
   } else {
-    transaction->state = FAILED;
-    transaction->failure = STUN_FAILURE_INVALID_RESPONSE;
+    auto const error_code =
+        stun_agent_find_attribute(message, STUN_ATTRIBUTE_ERROR_CODE,
+                                  &attribute)
+            ? stun_attribute_read_error_code(&attribute)
+            : (stun_optional_error_code_t){.has_value = false};
+    if (error_code.has_value) {
+      stun_agent_fail(transaction, STUN_FAILURE_ERROR_RESPONSE);
+      transaction->error_code = error_code.value;
+      return;
+    }
   }
+  stun_agent_fail(transaction, STUN_FAILURE_INVALID_RESPONSE);
 }

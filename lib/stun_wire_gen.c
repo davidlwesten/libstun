@@ -37,6 +37,14 @@ static bool stun_wire_rd_u16(struct stun_wire_rd *r, uint16_t *v) {
     return true;
 }
 
+static bool stun_wire_rd_u24(struct stun_wire_rd *r, uint32_t *v) {
+    if (stun_wire_rd_left(r) < 3)
+        return false;
+    *v = (uint32_t)r->p[0] << 16 | (uint32_t)r->p[1] << 8 | r->p[2];
+    r->p += 3;
+    return true;
+}
+
 static bool stun_wire_rd_u32(struct stun_wire_rd *r, uint32_t *v) {
     if (stun_wire_rd_left(r) < 4)
         return false;
@@ -71,6 +79,13 @@ static bool stun_wire_rd_sub(struct stun_wire_rd *r, struct stun_wire_rd *sub, s
     return true;
 }
 
+static bool stun_wire_rd_rest(struct stun_wire_rd *r, struct stun_wire_bytes *v) {
+    v->ptr = r->p;
+    v->len = stun_wire_rd_left(r);
+    r->p = r->end;
+    return true;
+}
+
 static bool stun_wire_rd_bytes(struct stun_wire_rd *r, struct stun_wire_bytes *v, size_t n) {
     if (stun_wire_rd_left(r) < n)
         return false;
@@ -98,6 +113,16 @@ static stun_wire_status stun_wire_wr_u16(struct stun_wire_wr *w, uint16_t v) {
     w->p[0] = (uint8_t)(v >> 8);
     w->p[1] = (uint8_t)v;
     w->p += 2;
+    return STUN_WIRE_OK;
+}
+
+static stun_wire_status stun_wire_wr_u24(struct stun_wire_wr *w, uint32_t v) {
+    if (stun_wire_wr_left(w) < 3)
+        return STUN_WIRE_NOSPACE;
+    w->p[0] = (uint8_t)(v >> 16);
+    w->p[1] = (uint8_t)(v >> 8);
+    w->p[2] = (uint8_t)v;
+    w->p += 3;
     return STUN_WIRE_OK;
 }
 
@@ -409,4 +434,52 @@ stun_wire_status stun_wire_xor_mapped_address_encode(
 size_t stun_wire_xor_mapped_address_encoded_size(
     const struct stun_wire_xor_mapped_address *in) {
     return stun_wire_xor_mapped_address_size(in);
+}
+
+/* ---- message ErrorCode -------------------------------------------------- */
+
+static bool stun_wire_error_code_read(struct stun_wire_rd *r,
+                                      struct stun_wire_error_code *out) {
+    uint32_t bits0;
+    STUN_WIRE_CHECK(stun_wire_rd_u24(r, &bits0));
+    out->class = (uint8_t)(bits0 & 0x7);
+    STUN_WIRE_CHECK(stun_wire_rd_u8(r, &out->number));
+    return stun_wire_rd_rest(r, &out->reason);
+}
+
+static stun_wire_status stun_wire_error_code_write(
+    struct stun_wire_wr *w, const struct stun_wire_error_code *in) {
+    if (in->class > 0x7)
+        return STUN_WIRE_INVALID;
+    STUN_WIRE_TRY(stun_wire_wr_u24(w, (uint32_t)(in->class)));
+    STUN_WIRE_TRY(stun_wire_wr_u8(w, in->number));
+    return stun_wire_wr_raw(w, in->reason.ptr, in->reason.len);
+}
+
+static size_t stun_wire_error_code_size(
+    const struct stun_wire_error_code *in) {
+    return 4 + in->reason.len;
+}
+
+stun_wire_status stun_wire_error_code_decode(struct stun_wire_error_code *out,
+                                             const uint8_t *buf, size_t len) {
+    struct stun_wire_rd r = { buf, len != 0 ? buf + len : buf };
+    /* The message must account for every byte of the input. */
+    if (!stun_wire_error_code_read(&r, out) || r.p != r.end)
+        return STUN_WIRE_INVALID;
+    return STUN_WIRE_OK;
+}
+
+stun_wire_status stun_wire_error_code_encode(
+    const struct stun_wire_error_code *in, uint8_t *buf, size_t cap,
+    size_t *written) {
+    struct stun_wire_wr w = { buf, cap != 0 ? buf + cap : buf };
+    STUN_WIRE_TRY(stun_wire_error_code_write(&w, in));
+    *written = (size_t)(w.p - buf);
+    return STUN_WIRE_OK;
+}
+
+size_t stun_wire_error_code_encoded_size(
+    const struct stun_wire_error_code *in) {
+    return stun_wire_error_code_size(in);
 }

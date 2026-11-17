@@ -107,6 +107,8 @@ typedef enum stun_failure {
   STUN_FAILURE_TIMEOUT,
   /// The server's answer couldn't be used, e.g. it had no address
   STUN_FAILURE_INVALID_RESPONSE,
+  /// The server answered with an error, see stun_event_t::failed
+  STUN_FAILURE_ERROR_RESPONSE,
 } stun_failure_t;
 
 /**
@@ -141,6 +143,10 @@ typedef struct stun_event {
     struct {
       stun_handle_t handle;
       stun_failure_t reason;
+      /// For STUN_FAILURE_ERROR_RESPONSE, the server's error code from 300 to
+      /// 699, e.g. 400 for a bad request or 500 for a temporary problem on the
+      /// server's side
+      uint16_t error_code;
     } failed;
     struct {
       /// Always later than `now`. Empty if nothing is scheduled, in which case

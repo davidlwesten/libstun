@@ -40,6 +40,7 @@ enum {
  * they are.
  */
 enum {
+  STUN_ATTRIBUTE_ERROR_CODE = 0x0009,
   STUN_ATTRIBUTE_XOR_MAPPED_ADDRESS = 0x0020,
 };
 
@@ -131,3 +132,19 @@ typedef struct stun_optional_socket_address {
 stun_optional_socket_address_t stun_attribute_read_xor_mapped_address(
     stun_attribute_t const *attribute,
     stun_transaction_id_t const *transaction_id);
+
+typedef struct stun_optional_error_code {
+  bool has_value;
+  /// 300 to 699
+  uint16_t value;
+} stun_optional_error_code_t;
+
+/**
+ * @brief Read an ERROR-CODE, leaving out the reason phrase
+ *
+ * @param[in] attribute Of type STUN_ATTRIBUTE_ERROR_CODE
+ *
+ * @returns The error code, or nothing if the value isn't valid
+ */
+stun_optional_error_code_t
+stun_attribute_read_error_code(stun_attribute_t const *attribute);

@@ -141,3 +141,24 @@ stun_optional_socket_address_t stun_attribute_read_xor_mapped_address(
   result.has_value = true;
   return result;
 }
+
+stun_optional_error_code_t
+stun_attribute_read_error_code(stun_attribute_t const *attribute) {
+  assert(attribute);
+  assert(attribute->type == STUN_ATTRIBUTE_ERROR_CODE);
+
+  stun_optional_error_code_t result = {.has_value = false};
+
+  struct stun_wire_error_code error;
+  if (stun_wire_error_code_decode(&error, attribute->value.data,
+                                  attribute->value.size) != STUN_WIRE_OK) {
+    return result;
+  }
+  if (error.class < 3 || error.class > 6 || error.number > 99) {
+    return result;
+  }
+
+  result.value = (uint16_t)(error.class * 100 + error.number);
+  result.has_value = true;
+  return result;
+}

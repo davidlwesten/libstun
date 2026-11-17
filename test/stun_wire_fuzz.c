@@ -99,6 +99,10 @@ static void walk_xor_mapped_address(const struct stun_wire_xor_mapped_address *v
     }
 }
 
+static void walk_error_code(const struct stun_wire_error_code *v) {
+    walk_bytes(&v->reason);
+}
+
 static void build_attribute(struct src *in, struct stun_wire_attribute *v) {
     v->type = (uint16_t)(take_u32(in) & 0xffff);
     take_bytes(in, &v->value, 0xffff);
@@ -140,6 +144,12 @@ static void build_xor_mapped_address(struct src *in, struct stun_wire_xor_mapped
         build_ipv6(in, &v->address.ipv6);
         break;
     }
+}
+
+static void build_error_code(struct src *in, struct stun_wire_error_code *v) {
+    v->class = (uint8_t)(take_u32(in) & 0x7);
+    v->number = (uint8_t)(take_u32(in) & 0xff);
+    take_bytes(in, &v->reason, SIZE_MAX);
 }
 
 /* Decode then encode must give back the input exactly. */
@@ -249,6 +259,58 @@ static void encode_xor_mapped_address(const uint8_t *data, size_t len) {
     free(b);
 }
 
+/* ErrorCode has reserved fields or padding, which decode ignores and
+ * encode writes as zeros, so the first encode may differ from the
+ * input there. It must still have the same length, decode again, and
+ * encode to identical bytes. */
+static void decode_error_code(const uint8_t *buf, size_t size) {
+    struct stun_wire_error_code msg;
+    if (stun_wire_error_code_decode(&msg, buf, size) != STUN_WIRE_OK)
+        return;
+    walk_error_code(&msg);
+    if (stun_wire_error_code_encoded_size(&msg) != size)
+        abort();
+    uint8_t *a = malloc(size != 0 ? size : 1);
+    uint8_t *b = malloc(size != 0 ? size : 1);
+    size_t n = 0;
+    if (stun_wire_error_code_encode(&msg, a, size, &n) != STUN_WIRE_OK || n != size)
+        abort();
+    if (size != 0 &&
+        stun_wire_error_code_encode(&msg, b, size - 1, &n) != STUN_WIRE_NOSPACE)
+        abort();
+    struct stun_wire_error_code again;
+    if (stun_wire_error_code_decode(&again, a, size) != STUN_WIRE_OK)
+        abort();
+    if (stun_wire_error_code_encode(&again, b, size, &n) != STUN_WIRE_OK || n != size ||
+        memcmp(a, b, size) != 0)
+        abort();
+    free(a);
+    free(b);
+}
+
+/* Build a valid ErrorCode from the input, then encode it: it must take
+ * exactly encoded_size bytes, decode, and encode to identical bytes. */
+static void encode_error_code(const uint8_t *data, size_t len) {
+    struct src in = { data, data + len };
+    struct stun_wire_error_code msg = {};
+    arena_used = 0;
+    build_error_code(&in, &msg);
+    size_t size = stun_wire_error_code_encoded_size(&msg);
+    size_t n = 0;
+    uint8_t *a = malloc(size != 0 ? size : 1);
+    uint8_t *b = malloc(size != 0 ? size : 1);
+    if (stun_wire_error_code_encode(&msg, a, size, &n) != STUN_WIRE_OK || n != size)
+        abort();
+    struct stun_wire_error_code back;
+    if (stun_wire_error_code_decode(&back, a, size) != STUN_WIRE_OK)
+        abort();
+    if (stun_wire_error_code_encode(&back, b, size, &n) != STUN_WIRE_OK || n != size ||
+        memcmp(a, b, size) != 0)
+        abort();
+    free(a);
+    free(b);
+}
+
 int LLVMFuzzerTestOneInput(const uint8_t *data, size_t size) {
     /* An exact-size heap copy, so ASan catches any overread. */
     uint8_t *buf = malloc(size != 0 ? size : 1);
@@ -258,6 +320,8 @@ int LLVMFuzzerTestOneInput(const uint8_t *data, size_t size) {
     encode_message(buf, size);
     decode_xor_mapped_address(buf, size);
     encode_xor_mapped_address(buf, size);
+    decode_error_code(buf, size);
+    encode_error_code(buf, size);
     free(buf);
     return 0;
 }

@@ -111,6 +111,16 @@ expect_failed(stun_time_ms_t now, stun_handle_t handle, stun_failure_t reason) {
   TEST_ASSERT_EQUAL(reason, event.failed.reason);
 }
 
+static void expect_error_response(stun_time_ms_t now,
+                                  stun_handle_t handle,
+                                  uint16_t error_code) {
+  auto const event = stun_agent_poll(agent, now);
+  TEST_ASSERT_EQUAL(STUN_EVENT_FAILED, event.type);
+  TEST_ASSERT_EQUAL_UINT16(handle, event.failed.handle);
+  TEST_ASSERT_EQUAL(STUN_FAILURE_ERROR_RESPONSE, event.failed.reason);
+  TEST_ASSERT_EQUAL_UINT16(error_code, event.failed.error_code);
+}
+
 static void test_agent_nothing_requested() {
   begin(0);
   expect_idle(0);
@@ -269,6 +279,55 @@ static void test_agent_first_answer_decides() {
   stun_agent_end(agent);
 }
 
+static uint8_t const binding_error[] = {0x01, 0x11};
+
+// 400 Bad Request, padded
+#define ERROR_CODE_400                                                         \
+  0x00, 0x09, 0, 15, 0, 0, 4, 0, 'B', 'a', 'd', ' ', 'R', 'e', 'q', 'u', 'e',  \
+      's', 't', 0
+
+static void test_agent_error_response() {
+  begin(0);
+  auto const handle = request();
+  auto const id = expect_send(0);
+
+  uint8_t const attributes[] = {
+      ERROR_CODE_400, 0x80, 0x22, 0, 3, 'a', 'b', 'c', 0, // SOFTWARE, padded
+  };
+  receive(binding_error, id, sizeof(attributes), attributes);
+
+  expect_error_response(10, handle, 400);
+  expect_idle(10);
+  stun_agent_end(agent);
+}
+
+static void test_agent_fails_on_unusable_error_responses() {
+  begin(0);
+  auto const missing = request();
+  auto const invalid = request();
+  auto const required = request();
+  auto const missing_id = expect_send(0);
+  auto const invalid_id = expect_send(0);
+  auto const required_id = expect_send(0);
+
+  // no ERROR-CODE
+  receive(binding_error, missing_id, 0, xor_mapped_address);
+
+  // a class above 6
+  uint8_t const class_7[] = {0x00, 0x09, 0, 4, 0, 0, 7, 0};
+  receive(binding_error, invalid_id, sizeof(class_7), class_7);
+
+  // an attribute we'd have to understand
+  uint8_t const unknown[] = {ERROR_CODE_400, 0x7F, 0xFF, 0, 4, 1, 2, 3, 4};
+  receive(binding_error, required_id, sizeof(unknown), unknown);
+
+  expect_failed(10, missing, STUN_FAILURE_INVALID_RESPONSE);
+  expect_failed(10, invalid, STUN_FAILURE_INVALID_RESPONSE);
+  expect_failed(10, required, STUN_FAILURE_INVALID_RESPONSE);
+  expect_idle(10);
+  stun_agent_end(agent);
+}
+
 static void test_agent_ignores_other_messages() {
   begin(0);
   request();
@@ -279,6 +338,9 @@ static void test_agent_ignores_other_messages() {
   receive(binding_request, id, sizeof(xor_mapped_address), xor_mapped_address);
   uint8_t const other_success[] = {0x01, 0x02};
   receive(other_success, id, sizeof(xor_mapped_address), xor_mapped_address);
+  uint8_t const other_error[] = {0x01, 0x12};
+  uint8_t const error_code[] = {ERROR_CODE_400};
+  receive(other_error, id, sizeof(error_code), error_code);
 
   expect_timeout(10, 500);
   stun_agent_end(agent);
@@ -353,6 +415,8 @@ void agent_tests() {
   RUN_TEST(test_agent_skips_optional_attributes);
   RUN_TEST(test_agent_fails_on_unusable_responses);
   RUN_TEST(test_agent_first_answer_decides);
+  RUN_TEST(test_agent_error_response);
+  RUN_TEST(test_agent_fails_on_unusable_error_responses);
   RUN_TEST(test_agent_ignores_other_messages);
   RUN_TEST(test_agent_ignores_garbage);
   RUN_TEST(test_agent_at_capacity);
