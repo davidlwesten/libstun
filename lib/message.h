@@ -7,7 +7,7 @@
 #include <byo/stun/stun.h>
 
 // STUN messages (RFC 8489) and their attributes, without any state: parsing
-// what's received, reading the attributes, and writing what's sent
+// and checking what's received, and writing what's sent
 
 typedef struct stun_transaction_id {
   uint8_t bytes[12];
@@ -41,31 +41,50 @@ typedef enum stun_attribute_type : uint16_t {
   STUN_ATTRIBUTE_XOR_MAPPED_ADDRESS = 0x0020,
 } stun_attribute_type_t;
 
-/**
- * @brief A parsed message, pointing into the buffer it was parsed from
- */
-typedef struct stun_message {
+typedef struct stun_header {
   stun_class_t message_class;
   stun_method_t method;
   stun_transaction_id_t transaction_id;
+} stun_header_t;
+
+/**
+ * @brief A valid message, pointing into the buffer it was parsed from
+ *
+ * Only stun_message_parse makes them, after checking every attribute.
+ */
+typedef struct stun_message {
+  stun_header_t header;
   /// Read them with stun_message_attributes
   const_view_t attributes;
 } stun_message_t;
 
-typedef struct stun_optional_message {
-  bool has_value;
-  stun_message_t value;
-} stun_optional_message_t;
+typedef enum stun_parse_status {
+  /// Not a STUN message, e.g. another protocol on the same socket
+  STUN_PARSE_NOT_STUN,
+  /// A STUN message we can't accept, e.g. with a comprehension-required
+  /// attribute we don't know or a known one that doesn't decode
+  STUN_PARSE_INVALID,
+  STUN_PARSE_VALID,
+} stun_parse_status_t;
+
+typedef struct stun_parse_result {
+  stun_parse_status_t status;
+  union {
+    /// For STUN_PARSE_INVALID, to tell which transaction it belongs to
+    stun_header_t header;
+    /// For STUN_PARSE_VALID
+    stun_message_t message;
+  };
+} stun_parse_result_t;
 
 /**
  * @brief Parse a datagram as a STUN message
  *
- * Checks what every message has to get right: the zero bits, the magic cookie,
- * and lengths that add up to exactly `src`, attributes included.
- *
- * @returns The message, or nothing if `src` isn't one
+ * Checks the framing (the zero bits, the magic cookie, and lengths that add up
+ * to exactly `src`) and every attribute: those listed in stun_attribute_type_t
+ * have to decode, and others mustn't be comprehension-required.
  */
-stun_optional_message_t stun_message_parse(const_view_t src);
+stun_parse_result_t stun_message_parse(const_view_t src);
 
 /**
  * @brief Write a message without attributes
@@ -82,14 +101,24 @@ size_t stun_message_write(view_t dst,
                           stun_method_t method,
                           stun_transaction_id_t const *transaction_id);
 
+/**
+ * @brief An attribute, decoded if its type is listed in stun_attribute_type_t
+ */
 typedef struct stun_attribute {
   stun_attribute_type_t type;
   /// Without the padding
   const_view_t value;
+  union {
+    stun_socket_address_t xor_mapped_address;
+    /// 300 to 699, without the reason phrase
+    uint16_t error_code;
+  };
 } stun_attribute_t;
 
 typedef struct stun_attribute_iterator {
   const_view_t rest;
+  /// Part of the key for XOR-MAPPED-ADDRESS
+  stun_transaction_id_t transaction_id;
 } stun_attribute_iterator_t;
 
 /**
@@ -105,43 +134,3 @@ stun_message_attributes(stun_message_t const *message);
  */
 bool stun_attribute_next(stun_attribute_iterator_t *iterator,
                          stun_attribute_t *attribute);
-
-/**
- * @brief Whether a receiver that doesn't know `type` has to reject the
- *        message
- */
-bool stun_attribute_is_comprehension_required(stun_attribute_type_t type);
-
-typedef struct stun_optional_socket_address {
-  bool has_value;
-  stun_socket_address_t value;
-} stun_optional_socket_address_t;
-
-/**
- * @brief Read an XOR-MAPPED-ADDRESS
- *
- * @param[in] attribute      Of type STUN_ATTRIBUTE_XOR_MAPPED_ADDRESS
- * @param[in] transaction_id The transaction ID of the message it came in,
- *                           part of the key for IPv6 addresses
- *
- * @returns The address, un-XORed, or nothing if the value isn't valid
- */
-stun_optional_socket_address_t stun_attribute_read_xor_mapped_address(
-    stun_attribute_t const *attribute,
-    stun_transaction_id_t const *transaction_id);
-
-typedef struct stun_optional_error_code {
-  bool has_value;
-  /// 300 to 699
-  uint16_t value;
-} stun_optional_error_code_t;
-
-/**
- * @brief Read an ERROR-CODE, leaving out the reason phrase
- *
- * @param[in] attribute Of type STUN_ATTRIBUTE_ERROR_CODE
- *
- * @returns The error code, or nothing if the value isn't valid
- */
-stun_optional_error_code_t
-stun_attribute_read_error_code(stun_attribute_t const *attribute);

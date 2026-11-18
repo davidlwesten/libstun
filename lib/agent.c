@@ -188,11 +188,11 @@ stun_event_t stun_agent_poll(stun_agent_t *agent, stun_time_ms_t now) {
 }
 
 static stun_transaction_t *
-stun_agent_find_pending(stun_agent_t *agent, stun_message_t const *message) {
+stun_agent_find_pending(stun_agent_t *agent, stun_header_t const *header) {
   for (size_t i = 0; i < agent->config.capacity; ++i) {
     auto const transaction = &agent->transactions[i];
     if (transaction->handle != 0 && transaction->state == PENDING &&
-        memcmp(transaction->id.bytes, message->transaction_id.bytes,
+        memcmp(transaction->id.bytes, header->transaction_id.bytes,
                sizeof(transaction->id.bytes)) == 0) {
       return transaction;
     }
@@ -200,25 +200,27 @@ stun_agent_find_pending(stun_agent_t *agent, stun_message_t const *message) {
   return nullptr;
 }
 
-// the first attribute of `type`, unless the message has other
-// comprehension-required attributes, which we don't know
-static bool stun_agent_find_attribute(stun_message_t const *message,
-                                      stun_attribute_type_t type,
-                                      stun_attribute_t *found) {
-  bool has_found = false;
+// a success needs an address and an error response a code, the first of each
+static void stun_agent_apply_response(stun_transaction_t *transaction,
+                                      stun_message_t const *message) {
+  auto const message_class = message->header.message_class;
   auto it = stun_message_attributes(message);
   stun_attribute_t attribute;
   while (stun_attribute_next(&it, &attribute)) {
-    if (attribute.type == type) {
-      if (!has_found) {
-        *found = attribute;
-        has_found = true;
-      }
-    } else if (stun_attribute_is_comprehension_required(attribute.type)) {
-      return false;
+    if (message_class == STUN_CLASS_SUCCESS &&
+        attribute.type == STUN_ATTRIBUTE_XOR_MAPPED_ADDRESS) {
+      transaction->state = BOUND;
+      transaction->mapped = attribute.xor_mapped_address;
+      return;
+    }
+    if (message_class == STUN_CLASS_ERROR &&
+        attribute.type == STUN_ATTRIBUTE_ERROR_CODE) {
+      stun_agent_fail(transaction, STUN_FAILURE_ERROR_RESPONSE);
+      transaction->error_code = attribute.error_code;
+      return;
     }
   }
-  return has_found;
+  stun_agent_fail(transaction, STUN_FAILURE_INVALID_RESPONSE);
 }
 
 void stun_agent_on_datagram(stun_agent_t *agent,
@@ -229,46 +231,32 @@ void stun_agent_on_datagram(stun_agent_t *agent,
 
   auto const parsed =
       stun_message_parse((const_view_t){.size = size, .data = data});
-  if (!parsed.has_value) {
+  stun_header_t const *header = nullptr;
+  switch (parsed.status) {
+  case STUN_PARSE_NOT_STUN:
     return;
+  case STUN_PARSE_INVALID:
+    header = &parsed.header;
+    break;
+  case STUN_PARSE_VALID:
+    header = &parsed.message.header;
+    break;
   }
-  auto const message = &parsed.value;
-  if ((message->message_class != STUN_CLASS_SUCCESS &&
-       message->message_class != STUN_CLASS_ERROR) ||
-      message->method != STUN_METHOD_BINDING) {
+  if ((header->message_class != STUN_CLASS_SUCCESS &&
+       header->message_class != STUN_CLASS_ERROR) ||
+      header->method != STUN_METHOD_BINDING) {
     return;
   }
 
   // a late answer to a retransmission finds its transaction done or gone
-  auto const transaction = stun_agent_find_pending(agent, message);
+  auto const transaction = stun_agent_find_pending(agent, header);
   if (!transaction) {
     return;
   }
 
-  stun_attribute_t attribute;
-  if (message->message_class == STUN_CLASS_SUCCESS) {
-    auto const mapped =
-        stun_agent_find_attribute(message, STUN_ATTRIBUTE_XOR_MAPPED_ADDRESS,
-                                  &attribute)
-            ? stun_attribute_read_xor_mapped_address(&attribute,
-                                                     &message->transaction_id)
-            : (stun_optional_socket_address_t){.has_value = false};
-    if (mapped.has_value) {
-      transaction->state = BOUND;
-      transaction->mapped = mapped.value;
-      return;
-    }
+  if (parsed.status == STUN_PARSE_VALID) {
+    stun_agent_apply_response(transaction, &parsed.message);
   } else {
-    auto const error_code =
-        stun_agent_find_attribute(message, STUN_ATTRIBUTE_ERROR_CODE,
-                                  &attribute)
-            ? stun_attribute_read_error_code(&attribute)
-            : (stun_optional_error_code_t){.has_value = false};
-    if (error_code.has_value) {
-      stun_agent_fail(transaction, STUN_FAILURE_ERROR_RESPONSE);
-      transaction->error_code = error_code.value;
-      return;
-    }
+    stun_agent_fail(transaction, STUN_FAILURE_INVALID_RESPONSE);
   }
-  stun_agent_fail(transaction, STUN_FAILURE_INVALID_RESPONSE);
 }
