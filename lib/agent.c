@@ -22,12 +22,12 @@ typedef struct stun_transaction {
   enum {
     /// Waiting to go out, or for the server's answer
     PENDING,
-    BOUND,
+    SUCCEEDED,
     FAILED,
   } state;
   stun_transaction_id_t id;
   stun_retransmit_t retransmit;
-  /// Once BOUND
+  /// Once SUCCEEDED
   stun_socket_address_t mapped;
   /// Once FAILED
   stun_failure_t failure;
@@ -125,7 +125,7 @@ stun_handle_or_error_t stun_agent_binding_request(stun_agent_t *agent) {
 // the event for a transaction that's done, which frees its slot
 static stun_event_t stun_agent_report(stun_transaction_t *transaction) {
   auto const event =
-      transaction->state == BOUND
+      transaction->state == SUCCEEDED
           ? (stun_event_t){.type = STUN_EVENT_BOUND,
                            .bound = {.handle = transaction->handle,
                                      .mapped = transaction->mapped}}
@@ -209,7 +209,7 @@ static void stun_agent_apply_response(stun_transaction_t *transaction,
   while (stun_attribute_next(&it, &attribute)) {
     if (message_class == STUN_CLASS_SUCCESS &&
         attribute.type == STUN_ATTRIBUTE_XOR_MAPPED_ADDRESS) {
-      transaction->state = BOUND;
+      transaction->state = SUCCEEDED;
       transaction->mapped = attribute.xor_mapped_address;
       return;
     }
