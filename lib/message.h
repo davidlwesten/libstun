@@ -54,8 +54,9 @@ typedef struct stun_header {
  */
 typedef struct stun_message {
   stun_header_t header;
-  /// Read them with stun_message_attributes
-  const_view_t attributes;
+  /// All of it, header included. Read the attributes with
+  /// stun_message_attributes.
+  const_view_t datagram;
 } stun_message_t;
 
 typedef enum stun_parse_status {
@@ -81,10 +82,11 @@ typedef struct stun_parse_result {
  * @brief Parse a datagram as a STUN message
  *
  * Checks the framing (the zero bits, the magic cookie, and lengths that add up
- * to exactly `src`) and every attribute: those listed in stun_attribute_type_t
- * have to decode, and others mustn't be comprehension-required.
+ * to exactly `datagram`) and every attribute: those listed in
+ * stun_attribute_type_t have to decode, and others mustn't be
+ * comprehension-required.
  */
-stun_parse_result_t stun_message_parse(const_view_t src);
+stun_parse_result_t stun_message_parse(const_view_t datagram);
 
 /**
  * @brief Write a message without attributes
@@ -116,9 +118,10 @@ typedef struct stun_attribute {
 } stun_attribute_t;
 
 typedef struct stun_attribute_iterator {
-  const_view_t rest;
-  /// Part of the key for XOR-MAPPED-ADDRESS
-  stun_transaction_id_t transaction_id;
+  /// All of the message, header included
+  const_view_t datagram;
+  /// Where the next attribute starts
+  size_t offset;
 } stun_attribute_iterator_t;
 
 /**

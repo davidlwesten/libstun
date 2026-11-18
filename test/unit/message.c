@@ -76,8 +76,8 @@ static void test_message_parse() {
   TEST_ASSERT_EQUAL_HEX16(STUN_METHOD_BINDING, message->header.method);
   TEST_ASSERT_EQUAL_UINT8_ARRAY(transaction_id.bytes,
                                 message->header.transaction_id.bytes, 12);
-  TEST_ASSERT_EQUAL_size_t(12, message->attributes.size);
-  TEST_ASSERT_EQUAL_PTR(data + 20, message->attributes.data);
+  TEST_ASSERT_EQUAL_size_t(sizeof(data), message->datagram.size);
+  TEST_ASSERT_EQUAL_PTR(data, message->datagram.data);
 }
 
 static void test_message_parse_class_and_method() {

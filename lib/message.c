@@ -14,9 +14,15 @@ static uint16_t stun_message_type(stun_class_t message_class,
                     (method & 0x0F80u) << 2 | (c & 1u) << 4 | (c & 2u) << 7);
 }
 
+// the header, which ends with the transaction ID
+static constexpr size_t STUN_HEADER_SIZE = 20;
+static constexpr size_t STUN_TRANSACTION_ID_OFFSET = 8;
+
 typedef enum stun_decode_status {
-  STUN_DECODE_END,
-  STUN_DECODE_VALID,
+  /// Of a type we know, with its value in the union
+  STUN_DECODE_KNOWN,
+  STUN_DECODE_UNKNOWN,
+  /// Of a type we know, but the value doesn't decode
   STUN_DECODE_INVALID,
 } stun_decode_status_t;
 
@@ -26,7 +32,7 @@ static bool stun_attribute_is_comprehension_required(uint16_t type) {
 
 static bool
 stun_attribute_decode_xor_mapped_address(const_view_t value,
-                                         stun_transaction_id_t const *id,
+                                         uint8_t const transaction_id[12],
                                          stun_socket_address_t *out) {
   struct stun_wire_xor_mapped_address address;
   if (stun_wire_xor_mapped_address_decode(&address, value.data, value.size) !=
@@ -41,7 +47,7 @@ stun_attribute_decode_xor_mapped_address(const_view_t value,
       (STUN_WIRE_MAGIC_COOKIE >> 8) & 0xFF,
       STUN_WIRE_MAGIC_COOKIE & 0xFF,
   };
-  memcpy(key + 4, id->bytes, sizeof(id->bytes));
+  memcpy(key + 4, transaction_id, 12);
 
   out->port = address.port ^ (uint16_t)(STUN_WIRE_MAGIC_COOKIE >> 16);
   switch (address.family) {
@@ -78,81 +84,91 @@ static bool stun_attribute_decode_error_code(const_view_t value,
   return true;
 }
 
-static stun_decode_status_t
-stun_attribute_decode(stun_attribute_iterator_t *iterator,
-                      stun_attribute_t *attribute) {
-  // parsing the message already checked the attributes' framing
+// the attribute at `offset`, moving past it, or false after the last one
+static bool stun_attribute_read(const_view_t datagram,
+                                size_t *offset,
+                                stun_attribute_t *attribute) {
+  if (*offset == datagram.size) {
+    return false;
+  }
+
+  // the generated decoder already checked the attributes' framing
   struct stun_wire_attribute_iter it = {
-      .pos = iterator->rest.data,
-      .end = iterator->rest.data + iterator->rest.size,
+      .pos = datagram.data + *offset,
+      .end = datagram.data + datagram.size,
   };
   struct stun_wire_attribute next;
-  if (iterator->rest.size == 0 || !stun_wire_attribute_iter_next(&it, &next)) {
-    return STUN_DECODE_END;
-  }
-  iterator->rest =
-      (const_view_t){.size = (size_t)(it.end - it.pos), .data = it.pos};
+  [[maybe_unused]] bool const read = stun_wire_attribute_iter_next(&it, &next);
+  assert(read);
+  *offset = (size_t)(it.pos - datagram.data);
 
   *attribute = (stun_attribute_t){
       .type = next.type,
       .value = {.size = next.value.len, .data = next.value.ptr},
   };
-  bool valid = false;
+  return true;
+}
+
+static stun_decode_status_t stun_attribute_decode(const_view_t datagram,
+                                                  stun_attribute_t *attribute) {
+  bool decoded = false;
   switch (attribute->type) {
   case STUN_ATTRIBUTE_ERROR_CODE:
-    valid = stun_attribute_decode_error_code(attribute->value,
-                                             &attribute->error_code);
+    decoded = stun_attribute_decode_error_code(attribute->value,
+                                               &attribute->error_code);
     break;
   case STUN_ATTRIBUTE_XOR_MAPPED_ADDRESS:
-    valid = stun_attribute_decode_xor_mapped_address(
-        attribute->value, &iterator->transaction_id,
+    decoded = stun_attribute_decode_xor_mapped_address(
+        attribute->value, datagram.data + STUN_TRANSACTION_ID_OFFSET,
         &attribute->xor_mapped_address);
     break;
   default:
-    valid = !stun_attribute_is_comprehension_required(attribute->type);
-    break;
+    return STUN_DECODE_UNKNOWN;
   }
-  return valid ? STUN_DECODE_VALID : STUN_DECODE_INVALID;
+  return decoded ? STUN_DECODE_KNOWN : STUN_DECODE_INVALID;
 }
 
-stun_parse_result_t stun_message_parse(const_view_t src) {
-  assert(src.data);
+stun_parse_result_t stun_message_parse(const_view_t datagram) {
+  assert(datagram.data);
 
   // the generated decoder checks the zero bits, the cookie and the lengths
   struct stun_wire_message wire;
-  if (stun_wire_message_decode(&wire, src.data, src.size) != STUN_WIRE_OK) {
+  if (stun_wire_message_decode(&wire, datagram.data, datagram.size) !=
+      STUN_WIRE_OK) {
     return (stun_parse_result_t){.status = STUN_PARSE_NOT_STUN};
   }
 
   auto const type = wire.type;
-  stun_message_t message = {
-      .header =
-          {
-              .message_class =
-                  (stun_class_t)((type >> 4 & 1) | (type >> 7 & 2)),
-              .method = (stun_method_t)((type & 0x000F) | (type & 0x00E0) >> 1 |
-                                        (type & 0x3E00) >> 2),
-          },
-      .attributes = {.size = wire.attributes.raw_len,
-                     .data = wire.attributes.raw},
+  stun_header_t header = {
+      .message_class = (stun_class_t)((type >> 4 & 1) | (type >> 7 & 2)),
+      .method = (stun_method_t)((type & 0x000F) | (type & 0x00E0) >> 1 |
+                                (type & 0x3E00) >> 2),
   };
-  memcpy(message.header.transaction_id.bytes, wire.transaction_id,
-         sizeof(message.header.transaction_id.bytes));
+  memcpy(header.transaction_id.bytes, wire.transaction_id,
+         sizeof(header.transaction_id.bytes));
 
-  auto it = stun_message_attributes(&message);
+  size_t offset = STUN_HEADER_SIZE;
   stun_attribute_t attribute;
-  for (;;) {
-    switch (stun_attribute_decode(&it, &attribute)) {
-    case STUN_DECODE_END:
-      return (stun_parse_result_t){.status = STUN_PARSE_VALID,
-                                   .message = message};
-    case STUN_DECODE_VALID:
+  while (stun_attribute_read(datagram, &offset, &attribute)) {
+    switch (stun_attribute_decode(datagram, &attribute)) {
+    case STUN_DECODE_KNOWN:
+      break;
+    case STUN_DECODE_UNKNOWN:
+      if (stun_attribute_is_comprehension_required(attribute.type)) {
+        return (stun_parse_result_t){.status = STUN_PARSE_INVALID,
+                                     .header = header};
+      }
       break;
     case STUN_DECODE_INVALID:
       return (stun_parse_result_t){.status = STUN_PARSE_INVALID,
-                                   .header = message.header};
+                                   .header = header};
     }
   }
+
+  return (stun_parse_result_t){
+      .status = STUN_PARSE_VALID,
+      .message = {.header = header, .datagram = datagram},
+  };
 }
 
 size_t stun_message_write(view_t dst,
@@ -181,8 +197,8 @@ stun_attribute_iterator_t
 stun_message_attributes(stun_message_t const *message) {
   assert(message);
   return (stun_attribute_iterator_t){
-      .rest = message->attributes,
-      .transaction_id = message->header.transaction_id,
+      .datagram = message->datagram,
+      .offset = STUN_HEADER_SIZE,
   };
 }
 
@@ -191,9 +207,12 @@ bool stun_attribute_next(stun_attribute_iterator_t *iterator,
   assert(iterator);
   assert(attribute);
 
+  if (!stun_attribute_read(iterator->datagram, &iterator->offset, attribute)) {
+    return false;
+  }
   [[maybe_unused]] auto const status =
-      stun_attribute_decode(iterator, attribute);
+      stun_attribute_decode(iterator->datagram, attribute);
   // parsing the message already decoded every attribute
   assert(status != STUN_DECODE_INVALID);
-  return status == STUN_DECODE_VALID;
+  return true;
 }
