@@ -3,7 +3,7 @@
 #include <byo/stun/stun.h>
 
 /**
- * @brief When to send a request again (RFC 8489, section 6.2.1)
+ * @brief When to send a request again (RFC 8489)
  *
  * Starts zeroed, with the first transmission due right away. After that the
  * client waits 500 ms, doubling every time, and gives up 8 s after the

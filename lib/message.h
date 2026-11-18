@@ -13,9 +13,6 @@ typedef struct stun_transaction_id {
   uint8_t bytes[12];
 } stun_transaction_id_t;
 
-/**
- * @brief A message's class (section 5)
- */
 typedef enum stun_class {
   STUN_CLASS_REQUEST = 0,
   STUN_CLASS_INDICATION = 1,
@@ -24,7 +21,7 @@ typedef enum stun_class {
 } stun_class_t;
 
 /**
- * @brief Methods, 12 bits (section 18.2)
+ * @brief Methods, 12 bits
  *
  * Messages can carry methods that aren't listed here, and they're passed on as
  * they are.
@@ -34,7 +31,7 @@ enum {
 };
 
 /**
- * @brief Attribute types (section 18.3)
+ * @brief Attribute types
  *
  * Messages can carry types that aren't listed here, and they're passed on as
  * they are.
@@ -111,7 +108,7 @@ bool stun_attribute_next(stun_attribute_iterator_t *iterator,
 
 /**
  * @brief Whether a receiver that doesn't know `type` has to reject the
- *        message (section 14)
+ *        message
  */
 bool stun_attribute_is_comprehension_required(uint16_t type);
 
@@ -121,7 +118,7 @@ typedef struct stun_optional_socket_address {
 } stun_optional_socket_address_t;
 
 /**
- * @brief Read an XOR-MAPPED-ADDRESS (section 14.2)
+ * @brief Read an XOR-MAPPED-ADDRESS
  *
  * @param[in] attribute      Of type STUN_ATTRIBUTE_XOR_MAPPED_ADDRESS
  * @param[in] transaction_id The transaction ID of the message it came in,

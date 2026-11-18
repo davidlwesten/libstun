@@ -6,7 +6,7 @@
 #include <string.h>
 
 // The 14-bit type interleaves the method's bits M11-M0 with the class's C1-C0
-// as M11-M7 C1 M6-M4 C0 M3-M0 (section 5)
+// as M11-M7 C1 M6-M4 C0 M3-M0
 static uint16_t stun_message_type(stun_class_t message_class, uint16_t method) {
   auto const c = (unsigned)message_class;
   return (uint16_t)((method & 0x000Fu) | (method & 0x0070u) << 1 |
