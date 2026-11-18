@@ -238,9 +238,11 @@ static void test_agent_skips_optional_attributes() {
 static void test_agent_fails_on_unusable_responses() {
   begin(0);
   auto const required = request();
+  auto const required_after = request();
   auto const missing = request();
   auto const family = request();
   auto const required_id = expect_send(0);
+  auto const required_after_id = expect_send(0);
   auto const missing_id = expect_send(0);
   auto const family_id = expect_send(0);
 
@@ -251,6 +253,14 @@ static void test_agent_fails_on_unusable_responses() {
   };
   receive(binding_success, required_id, sizeof(unknown), unknown);
 
+  // the same after the address
+  uint8_t const unknown_after[] = {
+      0x00, 0x20, 0,    8,    0x00, 0x01, 0xA1, 0x47, 0xE1, 0x12,
+      0xA6, 0x43, 0x7F, 0xFF, 0,    4,    1,    2,    3,    4,
+  };
+  receive(binding_success, required_after_id, sizeof(unknown_after),
+          unknown_after);
+
   // no address
   receive(binding_success, missing_id, 0, unknown);
 
@@ -260,6 +270,7 @@ static void test_agent_fails_on_unusable_responses() {
   receive(binding_success, family_id, sizeof(unknown_family), unknown_family);
 
   expect_failed(10, required, STUN_FAILURE_INVALID_RESPONSE);
+  expect_failed(10, required_after, STUN_FAILURE_INVALID_RESPONSE);
   expect_failed(10, missing, STUN_FAILURE_INVALID_RESPONSE);
   expect_failed(10, family, STUN_FAILURE_INVALID_RESPONSE);
   expect_idle(10);
