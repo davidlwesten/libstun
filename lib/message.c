@@ -7,7 +7,8 @@
 
 // The 14-bit type interleaves the method's bits M11-M0 with the class's C1-C0
 // as M11-M7 C1 M6-M4 C0 M3-M0
-static uint16_t stun_message_type(stun_class_t message_class, uint16_t method) {
+static uint16_t stun_message_type(stun_class_t message_class,
+                                  stun_method_t method) {
   auto const c = (unsigned)message_class;
   return (uint16_t)((method & 0x000Fu) | (method & 0x0070u) << 1 |
                     (method & 0x0F80u) << 2 | (c & 1u) << 4 | (c & 2u) << 7);
@@ -27,8 +28,8 @@ stun_optional_message_t stun_message_parse(const_view_t src) {
   auto const type = message.type;
   result.value = (stun_message_t){
       .message_class = (stun_class_t)((type >> 4 & 1) | (type >> 7 & 2)),
-      .method = (uint16_t)((type & 0x000F) | (type & 0x00E0) >> 1 |
-                           (type & 0x3E00) >> 2),
+      .method = (stun_method_t)((type & 0x000F) | (type & 0x00E0) >> 1 |
+                                (type & 0x3E00) >> 2),
       .attributes = {.size = message.attributes.raw_len,
                      .data = message.attributes.raw},
   };
@@ -40,7 +41,7 @@ stun_optional_message_t stun_message_parse(const_view_t src) {
 
 size_t stun_message_write(view_t dst,
                           stun_class_t message_class,
-                          uint16_t method,
+                          stun_method_t method,
                           stun_transaction_id_t const *transaction_id) {
   assert(dst.data);
   assert(method <= 0x0FFF);

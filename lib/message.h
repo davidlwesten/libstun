@@ -26,9 +26,9 @@ typedef enum stun_class {
  * Messages can carry methods that aren't listed here, and they're passed on as
  * they are.
  */
-enum {
+typedef enum stun_method : uint16_t {
   STUN_METHOD_BINDING = 0x001,
-};
+} stun_method_t;
 
 /**
  * @brief Attribute types
@@ -46,7 +46,7 @@ typedef enum stun_attribute_type : uint16_t {
  */
 typedef struct stun_message {
   stun_class_t message_class;
-  uint16_t method;
+  stun_method_t method;
   stun_transaction_id_t transaction_id;
   /// Read them with stun_message_attributes
   const_view_t attributes;
@@ -79,7 +79,7 @@ stun_optional_message_t stun_message_parse(const_view_t src);
  */
 size_t stun_message_write(view_t dst,
                           stun_class_t message_class,
-                          uint16_t method,
+                          stun_method_t method,
                           stun_transaction_id_t const *transaction_id);
 
 typedef struct stun_attribute {
