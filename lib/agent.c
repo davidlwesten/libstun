@@ -203,7 +203,7 @@ stun_agent_find_pending(stun_agent_t *agent, stun_message_t const *message) {
 // the first attribute of `type`, unless the message has other
 // comprehension-required attributes, which we don't know
 static bool stun_agent_find_attribute(stun_message_t const *message,
-                                      uint16_t type,
+                                      stun_attribute_type_t type,
                                       stun_attribute_t *found) {
   bool has_found = false;
   auto it = stun_message_attributes(message);

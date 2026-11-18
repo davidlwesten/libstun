@@ -90,7 +90,7 @@ bool stun_attribute_next(stun_attribute_iterator_t *iterator,
   return true;
 }
 
-bool stun_attribute_is_comprehension_required(uint16_t type) {
+bool stun_attribute_is_comprehension_required(stun_attribute_type_t type) {
   return type < 0x8000;
 }
 

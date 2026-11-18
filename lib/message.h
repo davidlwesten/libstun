@@ -36,10 +36,10 @@ enum {
  * Messages can carry types that aren't listed here, and they're passed on as
  * they are.
  */
-enum {
+typedef enum stun_attribute_type : uint16_t {
   STUN_ATTRIBUTE_ERROR_CODE = 0x0009,
   STUN_ATTRIBUTE_XOR_MAPPED_ADDRESS = 0x0020,
-};
+} stun_attribute_type_t;
 
 /**
  * @brief A parsed message, pointing into the buffer it was parsed from
@@ -83,7 +83,7 @@ size_t stun_message_write(view_t dst,
                           stun_transaction_id_t const *transaction_id);
 
 typedef struct stun_attribute {
-  uint16_t type;
+  stun_attribute_type_t type;
   /// Without the padding
   const_view_t value;
 } stun_attribute_t;
@@ -110,7 +110,7 @@ bool stun_attribute_next(stun_attribute_iterator_t *iterator,
  * @brief Whether a receiver that doesn't know `type` has to reject the
  *        message
  */
-bool stun_attribute_is_comprehension_required(uint16_t type);
+bool stun_attribute_is_comprehension_required(stun_attribute_type_t type);
 
 typedef struct stun_optional_socket_address {
   bool has_value;
