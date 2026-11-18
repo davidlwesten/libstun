@@ -200,7 +200,8 @@ stun_agent_find_pending(stun_agent_t *agent, stun_header_t const *header) {
   return nullptr;
 }
 
-// a success needs an address and an error response a code, the first of each
+// the first address of a success, or the first code of an error response,
+// which parsing checked are there
 static void stun_agent_apply_response(stun_transaction_t *transaction,
                                       stun_message_t const *message) {
   auto const message_class = message->header.message_class;
@@ -220,7 +221,7 @@ static void stun_agent_apply_response(stun_transaction_t *transaction,
       return;
     }
   }
-  stun_agent_fail(transaction, STUN_FAILURE_INVALID_RESPONSE);
+  assert(false);
 }
 
 void stun_agent_on_datagram(stun_agent_t *agent,

@@ -32,6 +32,9 @@ static stun_parse_result_t parse(size_t size, uint8_t const data[]) {
 #define XOR_MAPPED_ADDRESS_UNKNOWN_FAMILY                                      \
   0x00, 0x20, 0, 8, 0x00, 0x03, 0xA1, 0x47, 0xE1, 0x12, 0xA6, 0x43
 
+// The header of a Binding request with `length` bytes of attributes
+#define REQUEST(length) 0x00, 0x01, 0, length, COOKIE, TRANSACTION_ID
+
 // The header of a Binding error response with `length` bytes of attributes
 #define ERROR(length) 0x01, 0x11, 0, length, COOKIE, TRANSACTION_ID
 
@@ -82,7 +85,9 @@ static void test_message_parse() {
 
 static void test_message_parse_class_and_method() {
   // an error response with the highest method
-  uint8_t const error[] = {0x3F, 0xFF, 0, 0, COOKIE, TRANSACTION_ID};
+  uint8_t const error[] = {
+      0x3F, 0xFF, 0, 8, COOKIE, TRANSACTION_ID, 0x00, 0x09, 0, 4, 0, 0, 4, 0,
+  };
   auto parsed = parse(sizeof(error), error);
   TEST_ASSERT_EQUAL(STUN_PARSE_VALID, parsed.status);
   TEST_ASSERT_EQUAL(STUN_CLASS_ERROR, parsed.message.header.message_class);
@@ -153,7 +158,7 @@ static void test_message_attributes() {
 }
 
 static void test_message_no_attributes() {
-  uint8_t const data[] = {SUCCESS(0)};
+  uint8_t const data[] = {REQUEST(0)};
   auto const parsed = parse(sizeof(data), data);
   TEST_ASSERT_EQUAL(STUN_PARSE_VALID, parsed.status);
 
@@ -174,12 +179,40 @@ static void test_message_rejects_unknown_required_attributes() {
   TEST_ASSERT_EQUAL_UINT8_ARRAY(transaction_id.bytes,
                                 parsed.header.transaction_id.bytes, 12);
 
-  uint8_t const lowest[] = {SUCCESS(4), 0x00, 0x00, 0, 0};
+  uint8_t const lowest[] = {REQUEST(4), 0x00, 0x00, 0, 0};
   TEST_ASSERT_EQUAL(STUN_PARSE_INVALID, parse(sizeof(lowest), lowest).status);
 
   // the lowest optional type
-  uint8_t const optional[] = {SUCCESS(4), 0x80, 0x00, 0, 0};
+  uint8_t const optional[] = {REQUEST(4), 0x80, 0x00, 0, 0};
   TEST_ASSERT_EQUAL(STUN_PARSE_VALID, parse(sizeof(optional), optional).status);
+}
+
+static void test_message_requires_what_its_class_and_method_call_for() {
+  // an error response without ERROR-CODE, whatever its method
+  uint8_t const error[] = {ERROR(8), SOFTWARE};
+  auto parsed = parse(sizeof(error), error);
+  TEST_ASSERT_EQUAL(STUN_PARSE_INVALID, parsed.status);
+  TEST_ASSERT_EQUAL(STUN_CLASS_ERROR, parsed.header.message_class);
+
+  uint8_t const other_error[] = {0x01, 0x12, 0, 0, COOKIE, TRANSACTION_ID};
+  TEST_ASSERT_EQUAL(STUN_PARSE_INVALID,
+                    parse(sizeof(other_error), other_error).status);
+
+  // a Binding success response without XOR-MAPPED-ADDRESS
+  uint8_t const success[] = {SUCCESS(8), SOFTWARE};
+  TEST_ASSERT_EQUAL(STUN_PARSE_INVALID, parse(sizeof(success), success).status);
+
+  // but not a success response to another method
+  uint8_t const other_success[] = {0x01, 0x02, 0, 0, COOKIE, TRANSACTION_ID};
+  TEST_ASSERT_EQUAL(STUN_PARSE_VALID,
+                    parse(sizeof(other_success), other_success).status);
+
+  // nor a request or an indication
+  uint8_t const request[] = {REQUEST(0)};
+  TEST_ASSERT_EQUAL(STUN_PARSE_VALID, parse(sizeof(request), request).status);
+  uint8_t const indication[] = {0x00, 0x11, 0, 0, COOKIE, TRANSACTION_ID};
+  TEST_ASSERT_EQUAL(STUN_PARSE_VALID,
+                    parse(sizeof(indication), indication).status);
 }
 
 // the message's first attribute
@@ -268,6 +301,7 @@ void message_tests() {
   RUN_TEST(test_message_attributes);
   RUN_TEST(test_message_no_attributes);
   RUN_TEST(test_message_rejects_unknown_required_attributes);
+  RUN_TEST(test_message_requires_what_its_class_and_method_call_for);
   RUN_TEST(test_attribute_xor_mapped_address_v4);
   RUN_TEST(test_attribute_xor_mapped_address_v6);
   RUN_TEST(test_attribute_xor_mapped_address_invalid);

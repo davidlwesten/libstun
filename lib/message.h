@@ -50,7 +50,7 @@ typedef struct stun_header {
 /**
  * @brief A valid message, pointing into the buffer it was parsed from
  *
- * Only stun_message_parse makes them, after checking every attribute.
+ * Only stun_message_parse makes them, after checking all of it.
  */
 typedef struct stun_message {
   stun_header_t header;
@@ -63,7 +63,8 @@ typedef enum stun_parse_status {
   /// Not a STUN message, e.g. another protocol on the same socket
   STUN_PARSE_NOT_STUN,
   /// A STUN message we can't accept, e.g. with a comprehension-required
-  /// attribute we don't know or a known one that doesn't decode
+  /// attribute we don't know, a known one that doesn't decode, or without
+  /// one its class and method call for
   STUN_PARSE_INVALID,
   STUN_PARSE_VALID,
 } stun_parse_status_t;
@@ -84,7 +85,9 @@ typedef struct stun_parse_result {
  * Checks the framing (the zero bits, the magic cookie, and lengths that add up
  * to exactly `datagram`) and every attribute: those listed in
  * stun_attribute_type_t have to decode, and others mustn't be
- * comprehension-required.
+ * comprehension-required. Then checks the message carries what its class and
+ * method call for: an error response an ERROR-CODE, and a Binding success
+ * response an XOR-MAPPED-ADDRESS.
  */
 stun_parse_result_t stun_message_parse(const_view_t datagram);
 
