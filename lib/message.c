@@ -1,6 +1,7 @@
 #include "message.h"
 
 #include "stun_wire_gen.h"
+#include "validator.h"
 
 #include <assert.h>
 #include <string.h>
@@ -25,10 +26,6 @@ typedef enum stun_decode_status {
   /// Of a type we know, but the value doesn't decode
   STUN_DECODE_INVALID,
 } stun_decode_status_t;
-
-static bool stun_attribute_is_comprehension_required(uint16_t type) {
-  return type < 0x8000;
-}
 
 static bool
 stun_attribute_decode_xor_mapped_address(const_view_t value,
@@ -128,27 +125,6 @@ static stun_decode_status_t stun_attribute_decode(const_view_t datagram,
   return decoded ? STUN_DECODE_KNOWN : STUN_DECODE_INVALID;
 }
 
-// the known attributes a message carries
-typedef struct stun_attributes_seen {
-  bool error_code;
-  bool xor_mapped_address;
-} stun_attributes_seen_t;
-
-// whether a message carries what its class and method call for
-static bool stun_message_is_complete(stun_header_t const *header,
-                                     stun_attributes_seen_t const *seen) {
-  switch (header->message_class) {
-  case STUN_CLASS_ERROR:
-    return seen->error_code;
-  case STUN_CLASS_SUCCESS:
-    return header->method != STUN_METHOD_BINDING || seen->xor_mapped_address;
-  case STUN_CLASS_REQUEST:
-  case STUN_CLASS_INDICATION:
-    return true;
-  }
-  return false;
-}
-
 stun_parse_result_t stun_message_parse(const_view_t datagram) {
   assert(datagram.data);
 
@@ -171,29 +147,21 @@ stun_parse_result_t stun_message_parse(const_view_t datagram) {
   auto const invalid =
       (stun_parse_result_t){.status = STUN_PARSE_INVALID, .header = header};
 
-  stun_attributes_seen_t seen = {};
+  auto validator = stun_validator_begin(&header);
   size_t offset = STUN_HEADER_SIZE;
   stun_attribute_t attribute;
   while (stun_attribute_read(datagram, &offset, &attribute)) {
-    switch (stun_attribute_decode(datagram, &attribute)) {
-    case STUN_DECODE_KNOWN:
-      seen.error_code |= attribute.type == STUN_ATTRIBUTE_ERROR_CODE;
-      seen.xor_mapped_address |=
-          attribute.type == STUN_ATTRIBUTE_XOR_MAPPED_ADDRESS;
-      break;
-    case STUN_DECODE_UNKNOWN:
-      if (stun_attribute_is_comprehension_required(attribute.type)) {
-        return invalid;
-      }
-      break;
-    case STUN_DECODE_INVALID:
+    auto const status = stun_attribute_decode(datagram, &attribute);
+    if (status == STUN_DECODE_INVALID ||
+        !stun_validator_add(&validator, &attribute,
+                            status == STUN_DECODE_KNOWN)) {
       return invalid;
     }
   }
-
-  if (!stun_message_is_complete(&header, &seen)) {
+  if (!stun_validator_end(&validator)) {
     return invalid;
   }
+
   return (stun_parse_result_t){
       .status = STUN_PARSE_VALID,
       .message = {.header = header, .datagram = datagram},
