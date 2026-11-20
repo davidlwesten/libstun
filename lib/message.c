@@ -139,3 +139,18 @@ bool stun_attribute_next(stun_attribute_iterator_t *iterator,
   *attribute = parsed.attribute;
   return true;
 }
+
+bool stun_message_find_attribute(stun_message_t const *message,
+                                 stun_attribute_type_t type,
+                                 stun_attribute_t *attribute) {
+  assert(message);
+  assert(attribute);
+
+  auto it = stun_message_attributes(message);
+  while (stun_attribute_next(&it, attribute)) {
+    if (attribute->type == type) {
+      return true;
+    }
+  }
+  return false;
+}

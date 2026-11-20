@@ -154,6 +154,22 @@ static void test_message_attributes() {
   TEST_ASSERT_FALSE(stun_attribute_next(&it, &attribute));
 }
 
+static void test_message_find_attribute() {
+  uint8_t const data[] = {SUCCESS(44), SOFTWARE, XOR_MAPPED_ADDRESS_V6,
+                          XOR_MAPPED_ADDRESS_V4};
+  auto const parsed = parse(sizeof(data), data);
+  TEST_ASSERT_EQUAL(STUN_MESSAGE_PARSE_VALID, parsed.status);
+
+  // the first one of the type, here the IPv6 address
+  stun_attribute_t attribute;
+  TEST_ASSERT_TRUE(stun_message_find_attribute(
+      &parsed.message, STUN_ATTRIBUTE_XOR_MAPPED_ADDRESS, &attribute));
+  TEST_ASSERT_EQUAL_HEX8(0x20, attribute.xor_mapped_address.ip.addr[0]);
+
+  TEST_ASSERT_FALSE(stun_message_find_attribute(
+      &parsed.message, STUN_ATTRIBUTE_ERROR_CODE, &attribute));
+}
+
 static void test_message_no_attributes() {
   uint8_t const data[] = {REQUEST(0)};
   auto const parsed = parse(sizeof(data), data);
@@ -302,6 +318,7 @@ void message_tests() {
   RUN_TEST(test_message_rejects_other_protocols);
   RUN_TEST(test_message_rejects_bad_lengths);
   RUN_TEST(test_message_attributes);
+  RUN_TEST(test_message_find_attribute);
   RUN_TEST(test_message_no_attributes);
   RUN_TEST(test_message_rejects_unknown_required_attributes);
   RUN_TEST(test_message_requires_what_its_class_and_method_call_for);

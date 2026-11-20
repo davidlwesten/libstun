@@ -204,24 +204,30 @@ stun_agent_find_pending(stun_agent_t *agent, stun_header_t const *header) {
 // which parsing checked are there
 static void stun_agent_apply_response(stun_transaction_t *transaction,
                                       stun_message_t const *message) {
-  auto const message_class = message->header.message_class;
-  auto it = stun_message_attributes(message);
+  // parsing checked that each class carries the attribute it needs
   stun_attribute_t attribute;
-  while (stun_attribute_next(&it, &attribute)) {
-    if (message_class == STUN_CLASS_SUCCESS &&
-        attribute.type == STUN_ATTRIBUTE_XOR_MAPPED_ADDRESS) {
-      transaction->state = SUCCEEDED;
-      transaction->mapped = attribute.xor_mapped_address;
-      return;
-    }
-    if (message_class == STUN_CLASS_ERROR &&
-        attribute.type == STUN_ATTRIBUTE_ERROR_CODE) {
-      stun_agent_fail(transaction, STUN_FAILURE_ERROR_RESPONSE);
-      transaction->error_code = attribute.error_code;
-      return;
-    }
+  switch (message->header.message_class) {
+  case STUN_CLASS_SUCCESS: {
+    [[maybe_unused]] bool const found = stun_message_find_attribute(
+        message, STUN_ATTRIBUTE_XOR_MAPPED_ADDRESS, &attribute);
+    assert(found);
+    transaction->state = SUCCEEDED;
+    transaction->mapped = attribute.xor_mapped_address;
+    break;
   }
-  assert(false);
+  case STUN_CLASS_ERROR: {
+    [[maybe_unused]] bool const found = stun_message_find_attribute(
+        message, STUN_ATTRIBUTE_ERROR_CODE, &attribute);
+    assert(found);
+    stun_agent_fail(transaction, STUN_FAILURE_ERROR_RESPONSE);
+    transaction->error_code = attribute.error_code;
+    break;
+  }
+  case STUN_CLASS_REQUEST:
+  case STUN_CLASS_INDICATION:
+    assert(false);
+    break;
+  }
 }
 
 void stun_agent_on_datagram(stun_agent_t *agent,
