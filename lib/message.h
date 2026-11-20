@@ -3,34 +3,12 @@
 #include <stddef.h>
 #include <stdint.h>
 
+#include "header.h"
 #include "view.h"
 #include <byo/stun/stun.h>
 
 // STUN messages (RFC 8489) and their attributes, without any state: parsing
 // and checking what's received, and writing what's sent
-
-static constexpr size_t STUN_TRANSACTION_ID_SIZE = 12;
-
-typedef struct stun_transaction_id {
-  uint8_t bytes[STUN_TRANSACTION_ID_SIZE];
-} stun_transaction_id_t;
-
-typedef enum stun_class {
-  STUN_CLASS_REQUEST = 0,
-  STUN_CLASS_INDICATION = 1,
-  STUN_CLASS_SUCCESS = 2,
-  STUN_CLASS_ERROR = 3,
-} stun_class_t;
-
-/**
- * @brief Methods, 12 bits
- *
- * Messages can carry methods that aren't listed here, and they're passed on as
- * they are.
- */
-typedef enum stun_method : uint16_t {
-  STUN_METHOD_BINDING = 0x001,
-} stun_method_t;
 
 /**
  * @brief Attribute types
@@ -42,12 +20,6 @@ typedef enum stun_attribute_type : uint16_t {
   STUN_ATTRIBUTE_ERROR_CODE = 0x0009,
   STUN_ATTRIBUTE_XOR_MAPPED_ADDRESS = 0x0020,
 } stun_attribute_type_t;
-
-typedef struct stun_header {
-  stun_class_t message_class;
-  stun_method_t method;
-  stun_transaction_id_t transaction_id;
-} stun_header_t;
 
 /**
  * @brief A valid message, pointing into the buffer it was parsed from
