@@ -133,14 +133,14 @@ typedef enum stun_failure {
  */
 typedef struct stun_event {
   enum {
+    /// Nothing more to do before `timeout.deadline`, see stun_agent_poll
+    STUN_EVENT_TIMEOUT = 0,
     /// Send the request described by `send` to the server
     STUN_EVENT_SEND,
     /// The server sees request `bound.handle` coming from `bound.mapped`
     STUN_EVENT_BOUND,
     /// Request `failed.handle` failed for `failed.reason`
     STUN_EVENT_FAILED,
-    /// Nothing more to do before `timeout.deadline`, see stun_agent_poll
-    STUN_EVENT_TIMEOUT,
   } type;
   union {
     struct {
