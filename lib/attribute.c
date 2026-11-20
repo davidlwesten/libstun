@@ -81,25 +81,33 @@ stun_attribute_parse_error_code(const_view_t value, uint16_t *out) {
   return STUN_ATTRIBUTE_PARSE_KNOWN;
 }
 
-stun_attribute_parse_status_t
+stun_attribute_parse_result_t
 stun_attribute_parse(stun_header_t const *header,
-                     struct stun_wire_attribute const *wire,
-                     stun_attribute_t *out) {
+                     struct stun_wire_attribute const *wire) {
   assert(header);
   assert(wire);
-  assert(out);
 
-  *out = (stun_attribute_t){
-      .type = wire->type,
-      .value = {.size = wire->value.len, .data = wire->value.ptr},
+  stun_attribute_parse_result_t result = {
+      .attribute =
+          {
+              .type = wire->type,
+              .value = {.size = wire->value.len, .data = wire->value.ptr},
+          },
   };
-  switch (out->type) {
+  auto const attribute = &result.attribute;
+  switch (attribute->type) {
   case STUN_ATTRIBUTE_ERROR_CODE:
-    return stun_attribute_parse_error_code(out->value, &out->error_code);
+    result.status = stun_attribute_parse_error_code(attribute->value,
+                                                    &attribute->error_code);
+    break;
   case STUN_ATTRIBUTE_XOR_MAPPED_ADDRESS:
-    return stun_attribute_parse_xor_mapped_address(
-        out->value, &header->transaction_id, &out->xor_mapped_address);
+    result.status = stun_attribute_parse_xor_mapped_address(
+        attribute->value, &header->transaction_id,
+        &attribute->xor_mapped_address);
+    break;
   default:
-    return STUN_ATTRIBUTE_PARSE_UNKNOWN;
+    result.status = STUN_ATTRIBUTE_PARSE_UNKNOWN;
+    break;
   }
+  return result;
 }

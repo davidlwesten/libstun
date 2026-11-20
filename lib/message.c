@@ -68,12 +68,10 @@ stun_message_parse_result_t stun_message_parse(const_view_t datagram) {
   size_t offset = STUN_HEADER_SIZE;
   struct stun_wire_attribute wire_attribute;
   while (stun_attribute_read(datagram, &offset, &wire_attribute)) {
-    stun_attribute_t attribute;
-    auto const status =
-        stun_attribute_parse(&header, &wire_attribute, &attribute);
-    if (status == STUN_ATTRIBUTE_PARSE_INVALID ||
-        !stun_validator_add(&validator, &attribute,
-                            status == STUN_ATTRIBUTE_PARSE_KNOWN)) {
+    auto const parsed = stun_attribute_parse(&header, &wire_attribute);
+    if (parsed.status == STUN_ATTRIBUTE_PARSE_INVALID ||
+        !stun_validator_add(&validator, &parsed.attribute,
+                            parsed.status == STUN_ATTRIBUTE_PARSE_KNOWN)) {
       return invalid;
     }
   }
@@ -134,9 +132,9 @@ bool stun_attribute_next(stun_attribute_iterator_t *iterator,
   if (!stun_attribute_read(iterator->datagram, &iterator->offset, &wire)) {
     return false;
   }
-  [[maybe_unused]] auto const status =
-      stun_attribute_parse(&iterator->header, &wire, attribute);
+  auto const parsed = stun_attribute_parse(&iterator->header, &wire);
   // stun_message_parse already parsed every attribute
-  assert(status != STUN_ATTRIBUTE_PARSE_INVALID);
+  assert(parsed.status != STUN_ATTRIBUTE_PARSE_INVALID);
+  *attribute = parsed.attribute;
   return true;
 }

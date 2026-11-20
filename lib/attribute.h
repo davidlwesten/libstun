@@ -41,16 +41,20 @@ typedef enum stun_attribute_parse_status {
   STUN_ATTRIBUTE_PARSE_INVALID,
 } stun_attribute_parse_status_t;
 
+typedef struct stun_attribute_parse_result {
+  stun_attribute_parse_status_t status;
+  /// Its type and value whatever the status, and the union if it's KNOWN
+  stun_attribute_t attribute;
+} stun_attribute_parse_result_t;
+
 struct stun_wire_attribute;
 
 /**
  * @brief Parse a decoded attribute
  *
- * @param[in]  header The header of the message it came in
- * @param[in]  wire   The attribute as decoded
- * @param[out] out    The attribute, with its value in the union if it's KNOWN
+ * @param[in] header The header of the message it came in
+ * @param[in] wire   The attribute as decoded
  */
-stun_attribute_parse_status_t
+stun_attribute_parse_result_t
 stun_attribute_parse(stun_header_t const *header,
-                     struct stun_wire_attribute const *wire,
-                     stun_attribute_t *out);
+                     struct stun_wire_attribute const *wire);
