@@ -10,7 +10,7 @@ static stun_validator_t begin(stun_class_t message_class,
   return stun_validator_begin(&header);
 }
 
-// an attribute of a type we know, as decoding leaves it
+// an attribute of a type we know, as parsing leaves it
 static bool add_known(stun_validator_t *validator, stun_attribute_type_t type) {
   stun_attribute_t const attribute = {.type = type};
   return stun_validator_add(validator, &attribute, true);

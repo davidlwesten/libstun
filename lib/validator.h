@@ -18,7 +18,7 @@ stun_validator_t stun_validator_begin(stun_header_t const *header);
  * @brief Check the next attribute, in the order they came in
  *
  * @param[in] validator The validator to update
- * @param[in] attribute An attribute that decoded
+ * @param[in] attribute An attribute that parsed
  * @param[in] known     Whether its type is listed in stun_attribute_type_t
  *
  * @returns false if the message can't be accepted
