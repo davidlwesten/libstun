@@ -8,6 +8,7 @@ function(stun_add_library target)
   target_sources(${target}
     PRIVATE
       agent.c
+      attribute.c
       message.c
       retransmit.c
       stun_wire_gen.c

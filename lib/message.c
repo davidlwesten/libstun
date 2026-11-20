@@ -16,102 +16,15 @@ static constexpr unsigned STUN_METHOD_LOW_MASK =
 static constexpr unsigned STUN_METHOD_MID_MASK =
     (1u << (STUN_METHOD_HIGH_SHIFT - STUN_METHOD_MID_SHIFT)) - 1;
 
-// the header, which ends with the transaction ID
 static constexpr size_t STUN_HEADER_SIZE = 20;
-static constexpr size_t STUN_TRANSACTION_ID_OFFSET =
-    STUN_HEADER_SIZE - STUN_TRANSACTION_ID_SIZE;
 
-static constexpr size_t STUN_MAGIC_COOKIE_SIZE = sizeof(uint32_t);
-
-// ::ffff:0:0/96, followed by the IPv4 address
-static constexpr uint8_t STUN_IPV4_MAPPED_PREFIX[12] = {
-    0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0xFF, 0xFF,
-};
-
-// error codes are class * 100 + number
-static constexpr uint8_t STUN_ERROR_CODE_CLASS_MIN = 3;
-static constexpr uint8_t STUN_ERROR_CODE_CLASS_MAX = 6;
-static constexpr uint8_t STUN_ERROR_CODE_NUMBERS_PER_CLASS = 100;
-
-static void stun_store_be32(uint8_t out[static 4], uint32_t value) {
-  out[0] = (uint8_t)(value >> 24);
-  out[1] = (uint8_t)(value >> 16);
-  out[2] = (uint8_t)(value >> 8);
-  out[3] = (uint8_t)value;
-}
-
-typedef enum stun_attribute_parse_status {
-  /// Of a type we know, with its value in the union
-  STUN_ATTRIBUTE_PARSE_KNOWN,
-  STUN_ATTRIBUTE_PARSE_UNKNOWN,
-  /// Of a type we know, but the value doesn't parse
-  STUN_ATTRIBUTE_PARSE_INVALID,
-} stun_attribute_parse_status_t;
-
-static stun_attribute_parse_status_t stun_attribute_parse_xor_mapped_address(
-    const_view_t value,
-    uint8_t const transaction_id[STUN_TRANSACTION_ID_SIZE],
-    stun_socket_address_t *out) {
-  struct stun_wire_xor_mapped_address address;
-  if (stun_wire_xor_mapped_address_decode(&address, value.data, value.size) !=
-      STUN_WIRE_OK) {
-    return STUN_ATTRIBUTE_PARSE_INVALID;
-  }
-
-  // the cookie, then the transaction ID for the rest of an IPv6 address
-  uint8_t key[STUN_MAGIC_COOKIE_SIZE + STUN_TRANSACTION_ID_SIZE];
-  stun_store_be32(key, STUN_WIRE_MAGIC_COOKIE);
-  memcpy(key + STUN_MAGIC_COOKIE_SIZE, transaction_id,
-         STUN_TRANSACTION_ID_SIZE);
-  static_assert(sizeof(key) == sizeof(out->ip.addr));
-
-  out->port = address.port ^ (uint16_t)(STUN_WIRE_MAGIC_COOKIE >> 16);
-  switch (address.family) {
-  case STUN_WIRE_FAMILY_IPV4:
-    static_assert(sizeof(STUN_IPV4_MAPPED_PREFIX) +
-                      sizeof(address.address.ipv4.addr) ==
-                  sizeof(out->ip.addr));
-    memcpy(out->ip.addr, STUN_IPV4_MAPPED_PREFIX,
-           sizeof(STUN_IPV4_MAPPED_PREFIX));
-    for (size_t i = 0; i < sizeof(address.address.ipv4.addr); ++i) {
-      out->ip.addr[sizeof(STUN_IPV4_MAPPED_PREFIX) + i] =
-          address.address.ipv4.addr[i] ^ key[i];
-    }
-    return STUN_ATTRIBUTE_PARSE_KNOWN;
-  case STUN_WIRE_FAMILY_IPV6:
-    for (size_t i = 0; i < sizeof(address.address.ipv6.addr); ++i) {
-      out->ip.addr[i] = address.address.ipv6.addr[i] ^ key[i];
-    }
-    return STUN_ATTRIBUTE_PARSE_KNOWN;
-  default:
-    return STUN_ATTRIBUTE_PARSE_INVALID;
-  }
-}
-
-static stun_attribute_parse_status_t
-stun_attribute_parse_error_code(const_view_t value, uint16_t *out) {
-  struct stun_wire_error_code error;
-  if (stun_wire_error_code_decode(&error, value.data, value.size) !=
-      STUN_WIRE_OK) {
-    return STUN_ATTRIBUTE_PARSE_INVALID;
-  }
-  if (error.class < STUN_ERROR_CODE_CLASS_MIN ||
-      error.class > STUN_ERROR_CODE_CLASS_MAX ||
-      error.number >= STUN_ERROR_CODE_NUMBERS_PER_CLASS) {
-    return STUN_ATTRIBUTE_PARSE_INVALID;
-  }
-
-  *out = (uint16_t)(error.class * STUN_ERROR_CODE_NUMBERS_PER_CLASS +
-                    error.number);
-  return STUN_ATTRIBUTE_PARSE_KNOWN;
-}
-
-// the attribute at `offset`, moving past it, or false after the last one
+// decode the attribute at `offset`, moving past it, or false after the last
+// one
 static bool stun_attribute_read(const_view_t datagram,
                                 size_t *offset,
-                                stun_attribute_t *attribute) {
+                                struct stun_wire_attribute *wire) {
   assert(offset);
-  assert(attribute);
+  assert(wire);
 
   if (*offset == datagram.size) {
     return false;
@@ -122,31 +35,10 @@ static bool stun_attribute_read(const_view_t datagram,
       .pos = datagram.data + *offset,
       .end = datagram.data + datagram.size,
   };
-  struct stun_wire_attribute next;
-  [[maybe_unused]] bool const read = stun_wire_attribute_iter_next(&it, &next);
+  [[maybe_unused]] bool const read = stun_wire_attribute_iter_next(&it, wire);
   assert(read);
   *offset = (size_t)(it.pos - datagram.data);
-
-  *attribute = (stun_attribute_t){
-      .type = next.type,
-      .value = {.size = next.value.len, .data = next.value.ptr},
-  };
   return true;
-}
-
-static stun_attribute_parse_status_t
-stun_attribute_parse(const_view_t datagram, stun_attribute_t *attribute) {
-  switch (attribute->type) {
-  case STUN_ATTRIBUTE_ERROR_CODE:
-    return stun_attribute_parse_error_code(attribute->value,
-                                           &attribute->error_code);
-  case STUN_ATTRIBUTE_XOR_MAPPED_ADDRESS:
-    return stun_attribute_parse_xor_mapped_address(
-        attribute->value, datagram.data + STUN_TRANSACTION_ID_OFFSET,
-        &attribute->xor_mapped_address);
-  default:
-    return STUN_ATTRIBUTE_PARSE_UNKNOWN;
-  }
 }
 
 stun_parse_result_t stun_message_parse(const_view_t datagram) {
@@ -173,9 +65,11 @@ stun_parse_result_t stun_message_parse(const_view_t datagram) {
 
   auto validator = stun_validator_begin(&header);
   size_t offset = STUN_HEADER_SIZE;
-  stun_attribute_t attribute;
-  while (stun_attribute_read(datagram, &offset, &attribute)) {
-    auto const status = stun_attribute_parse(datagram, &attribute);
+  struct stun_wire_attribute wire_attribute;
+  while (stun_attribute_read(datagram, &offset, &wire_attribute)) {
+    stun_attribute_t attribute;
+    auto const status =
+        stun_attribute_parse(&header, &wire_attribute, &attribute);
     if (status == STUN_ATTRIBUTE_PARSE_INVALID ||
         !stun_validator_add(&validator, &attribute,
                             status == STUN_ATTRIBUTE_PARSE_KNOWN)) {
@@ -224,6 +118,7 @@ stun_attribute_iterator_t
 stun_message_attributes(stun_message_t const *message) {
   assert(message);
   return (stun_attribute_iterator_t){
+      .header = message->header,
       .datagram = message->datagram,
       .offset = STUN_HEADER_SIZE,
   };
@@ -234,11 +129,12 @@ bool stun_attribute_next(stun_attribute_iterator_t *iterator,
   assert(iterator);
   assert(attribute);
 
-  if (!stun_attribute_read(iterator->datagram, &iterator->offset, attribute)) {
+  struct stun_wire_attribute wire;
+  if (!stun_attribute_read(iterator->datagram, &iterator->offset, &wire)) {
     return false;
   }
   [[maybe_unused]] auto const status =
-      stun_attribute_parse(iterator->datagram, attribute);
+      stun_attribute_parse(&iterator->header, &wire, attribute);
   // stun_message_parse already parsed every attribute
   assert(status != STUN_ATTRIBUTE_PARSE_INVALID);
   return true;
