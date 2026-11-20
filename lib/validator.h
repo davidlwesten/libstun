@@ -1,6 +1,9 @@
 #pragma once
 
-#include "message.h"
+#include <stdint.h>
+
+#include "attribute.h"
+#include "header.h"
 
 /**
  * @brief The rules a message has to follow as a whole, checked attribute by
