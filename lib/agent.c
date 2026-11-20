@@ -188,6 +188,7 @@ stun_event_t stun_agent_poll(stun_agent_t *agent, stun_time_ms_t now) {
                         .timeout = {.deadline = deadline}};
 }
 
+// by transaction ID alone, since every request is a Binding request
 static stun_transaction_t *
 stun_agent_find_pending(stun_agent_t *agent, stun_header_t const *header) {
   for (size_t i = 0; i < agent->config.capacity; ++i) {
@@ -201,22 +202,14 @@ stun_agent_find_pending(stun_agent_t *agent, stun_header_t const *header) {
   return nullptr;
 }
 
-// the first address of a success, or the first code of an error response,
-// which parsing checked are there
 static void stun_agent_apply_response(stun_transaction_t *transaction,
                                       stun_message_t const *message) {
-  // parsing checked that each class carries the attribute it needs
+  // parsing checked that the response carries what its class and method
+  // call for
   stun_attribute_t attribute;
   switch (message->header.message_class) {
-  case STUN_CLASS_SUCCESS: {
-    [[maybe_unused]] bool const found = stun_message_find_attribute(
-        message, STUN_ATTRIBUTE_XOR_MAPPED_ADDRESS, &attribute);
-    assert(found);
-    transaction->state = SUCCEEDED;
-    transaction->mapped = attribute.xor_mapped_address;
-    break;
-  }
   case STUN_CLASS_ERROR: {
+    // whatever the method
     [[maybe_unused]] bool const found = stun_message_find_attribute(
         message, STUN_ATTRIBUTE_ERROR_CODE, &attribute);
     assert(found);
@@ -224,8 +217,20 @@ static void stun_agent_apply_response(stun_transaction_t *transaction,
     transaction->error_code = attribute.error_code;
     break;
   }
+  case STUN_CLASS_SUCCESS: {
+    // what a success carries depends on the method, and only Binding
+    // responses get this far
+    assert(message->header.method == STUN_METHOD_BINDING);
+    [[maybe_unused]] bool const found = stun_message_find_attribute(
+        message, STUN_ATTRIBUTE_XOR_MAPPED_ADDRESS, &attribute);
+    assert(found);
+    transaction->state = SUCCEEDED;
+    transaction->mapped = attribute.xor_mapped_address;
+    break;
+  }
   case STUN_CLASS_REQUEST:
   case STUN_CLASS_INDICATION:
+    // only responses get this far
     assert(false);
     break;
   }
@@ -243,6 +248,8 @@ void stun_agent_on_datagram(stun_agent_t *agent,
     return;
   }
 
+  // only responses answer our requests, and every request is a Binding
+  // request
   auto const header = &parsed.header;
   if ((header->message_class != STUN_CLASS_SUCCESS &&
        header->message_class != STUN_CLASS_ERROR) ||
