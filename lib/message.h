@@ -35,12 +35,18 @@ typedef enum stun_message_parse_status {
 
 typedef struct stun_message_parse_result {
   stun_message_parse_status_t status;
-  /// Unless it's STUN_MESSAGE_PARSE_NOT_STUN, e.g. to tell which transaction
-  /// it belongs to
-  stun_header_t header;
-  /// For STUN_MESSAGE_PARSE_VALID
-  stun_message_t message;
+  union {
+    /// Unless it's STUN_MESSAGE_PARSE_NOT_STUN, e.g. to tell which
+    /// transaction it belongs to. For STUN_MESSAGE_PARSE_VALID it reads
+    /// `message.header`.
+    stun_header_t header;
+    /// For STUN_MESSAGE_PARSE_VALID
+    stun_message_t message;
+  };
 } stun_message_parse_result_t;
+
+// what lets `header` read a valid result's `message.header`
+static_assert(offsetof(stun_message_t, header) == 0);
 
 /**
  * @brief Parse a datagram as a STUN message
