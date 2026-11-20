@@ -143,15 +143,12 @@ static void test_message_attributes() {
   auto it = stun_message_attributes(&parsed.message);
   stun_attribute_t attribute;
 
-  // an optional type we don't know, without its padding
+  // an optional type we don't know
   TEST_ASSERT_TRUE(stun_attribute_next(&it, &attribute));
   TEST_ASSERT_EQUAL_HEX16(0x8022, attribute.type);
-  TEST_ASSERT_EQUAL_size_t(3, attribute.value.size);
-  TEST_ASSERT_EQUAL_PTR(data + 24, attribute.value.data);
 
   TEST_ASSERT_TRUE(stun_attribute_next(&it, &attribute));
   TEST_ASSERT_EQUAL_HEX16(STUN_ATTRIBUTE_XOR_MAPPED_ADDRESS, attribute.type);
-  TEST_ASSERT_EQUAL_size_t(8, attribute.value.size);
 
   TEST_ASSERT_FALSE(stun_attribute_next(&it, &attribute));
   TEST_ASSERT_FALSE(stun_attribute_next(&it, &attribute));

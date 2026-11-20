@@ -3,7 +3,6 @@
 #include <stdint.h>
 
 #include "header.h"
-#include "view.h"
 #include <byo/stun/stun.h>
 
 // Giving one decoded attribute (RFC 8489) its meaning
@@ -24,8 +23,6 @@ typedef enum stun_attribute_type : uint16_t {
  */
 typedef struct stun_attribute {
   stun_attribute_type_t type;
-  /// Without the padding
-  const_view_t value;
   union {
     stun_socket_address_t xor_mapped_address;
     /// 300 to 699, without the reason phrase
@@ -43,7 +40,7 @@ typedef enum stun_attribute_parse_status {
 
 typedef struct stun_attribute_parse_result {
   stun_attribute_parse_status_t status;
-  /// Its type and value whatever the status, and the union if it's KNOWN
+  /// Its type whatever the status, and the union if it's KNOWN
   stun_attribute_t attribute;
 } stun_attribute_parse_result_t;
 

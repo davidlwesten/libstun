@@ -1,6 +1,7 @@
 #include "attribute.h"
 
 #include "stun_wire_gen.h"
+#include "view.h"
 
 #include <assert.h>
 #include <string.h>
@@ -87,23 +88,17 @@ stun_attribute_parse(stun_header_t const *header,
   assert(header);
   assert(wire);
 
-  stun_attribute_parse_result_t result = {
-      .attribute =
-          {
-              .type = wire->type,
-              .value = {.size = wire->value.len, .data = wire->value.ptr},
-          },
-  };
+  stun_attribute_parse_result_t result = {.attribute = {.type = wire->type}};
   auto const attribute = &result.attribute;
+  const_view_t const value = {.size = wire->value.len, .data = wire->value.ptr};
   switch (attribute->type) {
   case STUN_ATTRIBUTE_ERROR_CODE:
-    result.status = stun_attribute_parse_error_code(attribute->value,
-                                                    &attribute->error_code);
+    result.status =
+        stun_attribute_parse_error_code(value, &attribute->error_code);
     break;
   case STUN_ATTRIBUTE_XOR_MAPPED_ADDRESS:
     result.status = stun_attribute_parse_xor_mapped_address(
-        attribute->value, &header->transaction_id,
-        &attribute->xor_mapped_address);
+        value, &header->transaction_id, &attribute->xor_mapped_address);
     break;
   default:
     result.status = STUN_ATTRIBUTE_PARSE_UNKNOWN;
