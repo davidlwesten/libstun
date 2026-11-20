@@ -9,8 +9,10 @@
 // STUN messages (RFC 8489) and their attributes, without any state: parsing
 // and checking what's received, and writing what's sent
 
+static constexpr size_t STUN_TRANSACTION_ID_SIZE = 12;
+
 typedef struct stun_transaction_id {
-  uint8_t bytes[12];
+  uint8_t bytes[STUN_TRANSACTION_ID_SIZE];
 } stun_transaction_id_t;
 
 typedef enum stun_class {

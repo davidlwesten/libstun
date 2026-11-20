@@ -32,8 +32,11 @@ static uint32_t stun_validator_required(stun_header_t const *header) {
   return 0;
 }
 
+// types from here up are comprehension-optional
+static constexpr uint16_t STUN_ATTRIBUTE_COMPREHENSION_OPTIONAL = 0x8000;
+
 static bool stun_attribute_is_comprehension_required(uint16_t type) {
-  return type < 0x8000;
+  return type < STUN_ATTRIBUTE_COMPREHENSION_OPTIONAL;
 }
 
 stun_validator_t stun_validator_begin(stun_header_t const *header) {

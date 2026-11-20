@@ -15,9 +15,24 @@ static uint16_t stun_message_type(stun_class_t message_class,
                     (method & 0x0F80u) << 2 | (c & 1u) << 4 | (c & 2u) << 7);
 }
 
+[[maybe_unused]] static constexpr stun_method_t STUN_METHOD_MAX = 0x0FFF;
+
 // the header, which ends with the transaction ID
 static constexpr size_t STUN_HEADER_SIZE = 20;
-static constexpr size_t STUN_TRANSACTION_ID_OFFSET = 8;
+static constexpr size_t STUN_TRANSACTION_ID_OFFSET =
+    STUN_HEADER_SIZE - STUN_TRANSACTION_ID_SIZE;
+
+static constexpr size_t STUN_MAGIC_COOKIE_SIZE = sizeof(uint32_t);
+
+// ::ffff:0:0/96, followed by the IPv4 address
+static constexpr uint8_t STUN_IPV4_MAPPED_PREFIX[12] = {
+    0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0xFF, 0xFF,
+};
+
+// error codes are class * 100 + number
+static constexpr uint8_t STUN_ERROR_CODE_CLASS_MIN = 3;
+static constexpr uint8_t STUN_ERROR_CODE_CLASS_MAX = 6;
+static constexpr uint8_t STUN_ERROR_CODE_NUMBERS_PER_CLASS = 100;
 
 typedef enum stun_decode_status {
   /// Of a type we know, with its value in the union
@@ -27,10 +42,10 @@ typedef enum stun_decode_status {
   STUN_DECODE_INVALID,
 } stun_decode_status_t;
 
-static bool
-stun_attribute_decode_xor_mapped_address(const_view_t value,
-                                         uint8_t const transaction_id[12],
-                                         stun_socket_address_t *out) {
+static bool stun_attribute_decode_xor_mapped_address(
+    const_view_t value,
+    uint8_t const transaction_id[STUN_TRANSACTION_ID_SIZE],
+    stun_socket_address_t *out) {
   struct stun_wire_xor_mapped_address address;
   if (stun_wire_xor_mapped_address_decode(&address, value.data, value.size) !=
       STUN_WIRE_OK) {
@@ -38,26 +53,31 @@ stun_attribute_decode_xor_mapped_address(const_view_t value,
   }
 
   // the cookie, then the transaction ID for the rest of an IPv6 address
-  uint8_t key[16] = {
+  uint8_t key[STUN_MAGIC_COOKIE_SIZE + STUN_TRANSACTION_ID_SIZE] = {
       STUN_WIRE_MAGIC_COOKIE >> 24,
       (STUN_WIRE_MAGIC_COOKIE >> 16) & 0xFF,
       (STUN_WIRE_MAGIC_COOKIE >> 8) & 0xFF,
       STUN_WIRE_MAGIC_COOKIE & 0xFF,
   };
-  memcpy(key + 4, transaction_id, 12);
+  memcpy(key + STUN_MAGIC_COOKIE_SIZE, transaction_id,
+         STUN_TRANSACTION_ID_SIZE);
+  static_assert(sizeof(key) == sizeof(out->ip.addr));
 
   out->port = address.port ^ (uint16_t)(STUN_WIRE_MAGIC_COOKIE >> 16);
   switch (address.family) {
   case STUN_WIRE_FAMILY_IPV4:
-    memset(out->ip.addr, 0, 10);
-    out->ip.addr[10] = 0xFF;
-    out->ip.addr[11] = 0xFF;
-    for (size_t i = 0; i < 4; ++i) {
-      out->ip.addr[12 + i] = address.address.ipv4.addr[i] ^ key[i];
+    static_assert(sizeof(STUN_IPV4_MAPPED_PREFIX) +
+                      sizeof(address.address.ipv4.addr) ==
+                  sizeof(out->ip.addr));
+    memcpy(out->ip.addr, STUN_IPV4_MAPPED_PREFIX,
+           sizeof(STUN_IPV4_MAPPED_PREFIX));
+    for (size_t i = 0; i < sizeof(address.address.ipv4.addr); ++i) {
+      out->ip.addr[sizeof(STUN_IPV4_MAPPED_PREFIX) + i] =
+          address.address.ipv4.addr[i] ^ key[i];
     }
     return true;
   case STUN_WIRE_FAMILY_IPV6:
-    for (size_t i = 0; i < 16; ++i) {
+    for (size_t i = 0; i < sizeof(address.address.ipv6.addr); ++i) {
       out->ip.addr[i] = address.address.ipv6.addr[i] ^ key[i];
     }
     return true;
@@ -73,11 +93,14 @@ static bool stun_attribute_decode_error_code(const_view_t value,
       STUN_WIRE_OK) {
     return false;
   }
-  if (error.class < 3 || error.class > 6 || error.number > 99) {
+  if (error.class < STUN_ERROR_CODE_CLASS_MIN ||
+      error.class > STUN_ERROR_CODE_CLASS_MAX ||
+      error.number >= STUN_ERROR_CODE_NUMBERS_PER_CLASS) {
     return false;
   }
 
-  *out = (uint16_t)(error.class * 100 + error.number);
+  *out = (uint16_t)(error.class * STUN_ERROR_CODE_NUMBERS_PER_CLASS +
+                    error.number);
   return true;
 }
 
@@ -173,7 +196,7 @@ size_t stun_message_write(view_t dst,
                           stun_method_t method,
                           stun_transaction_id_t const *transaction_id) {
   assert(dst.data);
-  assert(method <= 0x0FFF);
+  assert(method <= STUN_METHOD_MAX);
   assert(transaction_id);
 
   struct stun_wire_message message = {
