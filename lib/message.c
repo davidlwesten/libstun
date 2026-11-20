@@ -110,6 +110,9 @@ stun_attribute_parse_error_code(const_view_t value, uint16_t *out) {
 static bool stun_attribute_read(const_view_t datagram,
                                 size_t *offset,
                                 stun_attribute_t *attribute) {
+  assert(offset);
+  assert(attribute);
+
   if (*offset == datagram.size) {
     return false;
   }
