@@ -81,6 +81,7 @@ stun_message_parse_result_t stun_message_parse(const_view_t datagram) {
 
   return (stun_message_parse_result_t){
       .status = STUN_MESSAGE_PARSE_VALID,
+      .header = header,
       .message = {.header = header, .datagram = datagram},
   };
 }

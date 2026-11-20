@@ -232,17 +232,10 @@ void stun_agent_on_datagram(stun_agent_t *agent,
 
   auto const parsed =
       stun_message_parse((const_view_t){.size = size, .data = data});
-  stun_header_t const *header = nullptr;
-  switch (parsed.status) {
-  case STUN_MESSAGE_PARSE_NOT_STUN:
+  if (parsed.status == STUN_MESSAGE_PARSE_NOT_STUN) {
     return;
-  case STUN_MESSAGE_PARSE_INVALID:
-    header = &parsed.header;
-    break;
-  case STUN_MESSAGE_PARSE_VALID:
-    header = &parsed.message.header;
-    break;
   }
+  auto const header = &parsed.header;
   if ((header->message_class != STUN_CLASS_SUCCESS &&
        header->message_class != STUN_CLASS_ERROR) ||
       header->method != STUN_METHOD_BINDING) {

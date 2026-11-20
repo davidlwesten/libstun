@@ -35,12 +35,11 @@ typedef enum stun_message_parse_status {
 
 typedef struct stun_message_parse_result {
   stun_message_parse_status_t status;
-  union {
-    /// For STUN_MESSAGE_PARSE_INVALID, to tell which transaction it belongs to
-    stun_header_t header;
-    /// For STUN_MESSAGE_PARSE_VALID
-    stun_message_t message;
-  };
+  /// Unless it's STUN_MESSAGE_PARSE_NOT_STUN, e.g. to tell which transaction
+  /// it belongs to
+  stun_header_t header;
+  /// For STUN_MESSAGE_PARSE_VALID
+  stun_message_t message;
 } stun_message_parse_result_t;
 
 /**
