@@ -23,25 +23,25 @@ typedef struct stun_message {
   const_view_t datagram;
 } stun_message_t;
 
-typedef enum stun_parse_status {
+typedef enum stun_message_parse_status {
   /// Not a STUN message, e.g. another protocol on the same socket
-  STUN_PARSE_NOT_STUN,
+  STUN_MESSAGE_PARSE_NOT_STUN,
   /// A STUN message we can't accept, e.g. with a comprehension-required
   /// attribute we don't know, a known one that doesn't parse, or without
   /// one its class and method call for
-  STUN_PARSE_INVALID,
-  STUN_PARSE_VALID,
-} stun_parse_status_t;
+  STUN_MESSAGE_PARSE_INVALID,
+  STUN_MESSAGE_PARSE_VALID,
+} stun_message_parse_status_t;
 
-typedef struct stun_parse_result {
-  stun_parse_status_t status;
+typedef struct stun_message_parse_result {
+  stun_message_parse_status_t status;
   union {
-    /// For STUN_PARSE_INVALID, to tell which transaction it belongs to
+    /// For STUN_MESSAGE_PARSE_INVALID, to tell which transaction it belongs to
     stun_header_t header;
-    /// For STUN_PARSE_VALID
+    /// For STUN_MESSAGE_PARSE_VALID
     stun_message_t message;
   };
-} stun_parse_result_t;
+} stun_message_parse_result_t;
 
 /**
  * @brief Parse a datagram as a STUN message
@@ -53,7 +53,7 @@ typedef struct stun_parse_result {
  * method call for: an error response an ERROR-CODE, and a Binding success
  * response an XOR-MAPPED-ADDRESS.
  */
-stun_parse_result_t stun_message_parse(const_view_t datagram);
+stun_message_parse_result_t stun_message_parse(const_view_t datagram);
 
 /**
  * @brief Write a message without attributes

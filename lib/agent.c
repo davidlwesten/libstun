@@ -234,12 +234,12 @@ void stun_agent_on_datagram(stun_agent_t *agent,
       stun_message_parse((const_view_t){.size = size, .data = data});
   stun_header_t const *header = nullptr;
   switch (parsed.status) {
-  case STUN_PARSE_NOT_STUN:
+  case STUN_MESSAGE_PARSE_NOT_STUN:
     return;
-  case STUN_PARSE_INVALID:
+  case STUN_MESSAGE_PARSE_INVALID:
     header = &parsed.header;
     break;
-  case STUN_PARSE_VALID:
+  case STUN_MESSAGE_PARSE_VALID:
     header = &parsed.message.header;
     break;
   }
@@ -255,7 +255,7 @@ void stun_agent_on_datagram(stun_agent_t *agent,
     return;
   }
 
-  if (parsed.status == STUN_PARSE_VALID) {
+  if (parsed.status == STUN_MESSAGE_PARSE_VALID) {
     stun_agent_apply_response(transaction, &parsed.message);
   } else {
     stun_agent_fail(transaction, STUN_FAILURE_INVALID_RESPONSE);

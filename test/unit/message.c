@@ -3,7 +3,7 @@
 #include "message.h"
 #include "runner.h"
 
-static stun_parse_result_t parse(size_t size, uint8_t const data[]) {
+static stun_message_parse_result_t parse(size_t size, uint8_t const data[]) {
   return stun_message_parse((const_view_t){.size = size, .data = data});
 }
 
@@ -73,7 +73,7 @@ static void test_message_write_interleaves_class_and_method() {
 static void test_message_parse() {
   uint8_t const data[] = {SUCCESS(12), XOR_MAPPED_ADDRESS_V4};
   auto const parsed = parse(sizeof(data), data);
-  TEST_ASSERT_EQUAL(STUN_PARSE_VALID, parsed.status);
+  TEST_ASSERT_EQUAL(STUN_MESSAGE_PARSE_VALID, parsed.status);
   auto const message = &parsed.message;
   TEST_ASSERT_EQUAL(STUN_CLASS_SUCCESS, message->header.message_class);
   TEST_ASSERT_EQUAL_HEX16(STUN_METHOD_BINDING, message->header.method);
@@ -89,13 +89,13 @@ static void test_message_parse_class_and_method() {
       0x3F, 0xFF, 0, 8, COOKIE, TRANSACTION_ID, 0x00, 0x09, 0, 4, 0, 0, 4, 0,
   };
   auto parsed = parse(sizeof(error), error);
-  TEST_ASSERT_EQUAL(STUN_PARSE_VALID, parsed.status);
+  TEST_ASSERT_EQUAL(STUN_MESSAGE_PARSE_VALID, parsed.status);
   TEST_ASSERT_EQUAL(STUN_CLASS_ERROR, parsed.message.header.message_class);
   TEST_ASSERT_EQUAL_HEX16(0xFFF, parsed.message.header.method);
 
   uint8_t const indication[] = {0x02, 0x11, 0, 0, COOKIE, TRANSACTION_ID};
   parsed = parse(sizeof(indication), indication);
-  TEST_ASSERT_EQUAL(STUN_PARSE_VALID, parsed.status);
+  TEST_ASSERT_EQUAL(STUN_MESSAGE_PARSE_VALID, parsed.status);
   TEST_ASSERT_EQUAL(STUN_CLASS_INDICATION, parsed.message.header.message_class);
   TEST_ASSERT_EQUAL_HEX16(0x081, parsed.message.header.method);
 }
@@ -104,41 +104,41 @@ static void test_message_rejects_other_protocols() {
   uint8_t const wrong_cookie[] = {
       0x01, 0x01, 0, 12, NOT_COOKIE, TRANSACTION_ID, XOR_MAPPED_ADDRESS_V4,
   };
-  TEST_ASSERT_EQUAL(STUN_PARSE_NOT_STUN,
+  TEST_ASSERT_EQUAL(STUN_MESSAGE_PARSE_NOT_STUN,
                     parse(sizeof(wrong_cookie), wrong_cookie).status);
 
   // the top bits set, as in RTP
   uint8_t const top_bits[] = {
       0x81, 0x01, 0, 12, COOKIE, TRANSACTION_ID, XOR_MAPPED_ADDRESS_V4,
   };
-  TEST_ASSERT_EQUAL(STUN_PARSE_NOT_STUN,
+  TEST_ASSERT_EQUAL(STUN_MESSAGE_PARSE_NOT_STUN,
                     parse(sizeof(top_bits), top_bits).status);
 }
 
 static void test_message_rejects_bad_lengths() {
   // the length counts past the datagram
   uint8_t const long_length[] = {SUCCESS(16), XOR_MAPPED_ADDRESS_V4};
-  TEST_ASSERT_EQUAL(STUN_PARSE_NOT_STUN,
+  TEST_ASSERT_EQUAL(STUN_MESSAGE_PARSE_NOT_STUN,
                     parse(sizeof(long_length), long_length).status);
 
   uint8_t const trailing[] = {SUCCESS(12), XOR_MAPPED_ADDRESS_V4, 0, 0, 0, 0};
-  TEST_ASSERT_EQUAL(STUN_PARSE_NOT_STUN,
+  TEST_ASSERT_EQUAL(STUN_MESSAGE_PARSE_NOT_STUN,
                     parse(sizeof(trailing), trailing).status);
 
   uint8_t const truncated[] = {0x01, 0x01, 0, 0, COOKIE};
-  TEST_ASSERT_EQUAL(STUN_PARSE_NOT_STUN,
+  TEST_ASSERT_EQUAL(STUN_MESSAGE_PARSE_NOT_STUN,
                     parse(sizeof(truncated), truncated).status);
 
   // an attribute running past the message
   uint8_t const attribute[] = {SUCCESS(8), 0x80, 0x22, 0, 8, 1, 2, 3, 4};
-  TEST_ASSERT_EQUAL(STUN_PARSE_NOT_STUN,
+  TEST_ASSERT_EQUAL(STUN_MESSAGE_PARSE_NOT_STUN,
                     parse(sizeof(attribute), attribute).status);
 }
 
 static void test_message_attributes() {
   uint8_t const data[] = {SUCCESS(20), SOFTWARE, XOR_MAPPED_ADDRESS_V4};
   auto const parsed = parse(sizeof(data), data);
-  TEST_ASSERT_EQUAL(STUN_PARSE_VALID, parsed.status);
+  TEST_ASSERT_EQUAL(STUN_MESSAGE_PARSE_VALID, parsed.status);
 
   auto it = stun_message_attributes(&parsed.message);
   stun_attribute_t attribute;
@@ -160,7 +160,7 @@ static void test_message_attributes() {
 static void test_message_no_attributes() {
   uint8_t const data[] = {REQUEST(0)};
   auto const parsed = parse(sizeof(data), data);
-  TEST_ASSERT_EQUAL(STUN_PARSE_VALID, parsed.status);
+  TEST_ASSERT_EQUAL(STUN_MESSAGE_PARSE_VALID, parsed.status);
 
   auto it = stun_message_attributes(&parsed.message);
   stun_attribute_t attribute;
@@ -173,51 +173,56 @@ static void test_message_rejects_unknown_required_attributes() {
       SUCCESS(20), XOR_MAPPED_ADDRESS_V4, 0x7F, 0xFF, 0, 4, 1, 2, 3, 4,
   };
   auto const parsed = parse(sizeof(required), required);
-  TEST_ASSERT_EQUAL(STUN_PARSE_INVALID, parsed.status);
+  TEST_ASSERT_EQUAL(STUN_MESSAGE_PARSE_INVALID, parsed.status);
   TEST_ASSERT_EQUAL(STUN_CLASS_SUCCESS, parsed.header.message_class);
   TEST_ASSERT_EQUAL_HEX16(STUN_METHOD_BINDING, parsed.header.method);
   TEST_ASSERT_EQUAL_UINT8_ARRAY(transaction_id.bytes,
                                 parsed.header.transaction_id.bytes, 12);
 
   uint8_t const lowest[] = {REQUEST(4), 0x00, 0x00, 0, 0};
-  TEST_ASSERT_EQUAL(STUN_PARSE_INVALID, parse(sizeof(lowest), lowest).status);
+  TEST_ASSERT_EQUAL(STUN_MESSAGE_PARSE_INVALID,
+                    parse(sizeof(lowest), lowest).status);
 
   // the lowest optional type
   uint8_t const optional[] = {REQUEST(4), 0x80, 0x00, 0, 0};
-  TEST_ASSERT_EQUAL(STUN_PARSE_VALID, parse(sizeof(optional), optional).status);
+  TEST_ASSERT_EQUAL(STUN_MESSAGE_PARSE_VALID,
+                    parse(sizeof(optional), optional).status);
 }
 
 static void test_message_requires_what_its_class_and_method_call_for() {
   // an error response without ERROR-CODE, whatever its method
   uint8_t const error[] = {ERROR(8), SOFTWARE};
   auto parsed = parse(sizeof(error), error);
-  TEST_ASSERT_EQUAL(STUN_PARSE_INVALID, parsed.status);
+  TEST_ASSERT_EQUAL(STUN_MESSAGE_PARSE_INVALID, parsed.status);
   TEST_ASSERT_EQUAL(STUN_CLASS_ERROR, parsed.header.message_class);
 
   uint8_t const other_error[] = {0x01, 0x12, 0, 0, COOKIE, TRANSACTION_ID};
-  TEST_ASSERT_EQUAL(STUN_PARSE_INVALID,
+  TEST_ASSERT_EQUAL(STUN_MESSAGE_PARSE_INVALID,
                     parse(sizeof(other_error), other_error).status);
 
   // a Binding success response without XOR-MAPPED-ADDRESS
   uint8_t const success[] = {SUCCESS(8), SOFTWARE};
-  TEST_ASSERT_EQUAL(STUN_PARSE_INVALID, parse(sizeof(success), success).status);
+  TEST_ASSERT_EQUAL(STUN_MESSAGE_PARSE_INVALID,
+                    parse(sizeof(success), success).status);
 
   // but not a success response to another method
   uint8_t const other_success[] = {0x01, 0x02, 0, 0, COOKIE, TRANSACTION_ID};
-  TEST_ASSERT_EQUAL(STUN_PARSE_VALID,
+  TEST_ASSERT_EQUAL(STUN_MESSAGE_PARSE_VALID,
                     parse(sizeof(other_success), other_success).status);
 
   // nor a request or an indication
   uint8_t const request[] = {REQUEST(0)};
-  TEST_ASSERT_EQUAL(STUN_PARSE_VALID, parse(sizeof(request), request).status);
+  TEST_ASSERT_EQUAL(STUN_MESSAGE_PARSE_VALID,
+                    parse(sizeof(request), request).status);
   uint8_t const indication[] = {0x00, 0x11, 0, 0, COOKIE, TRANSACTION_ID};
-  TEST_ASSERT_EQUAL(STUN_PARSE_VALID,
+  TEST_ASSERT_EQUAL(STUN_MESSAGE_PARSE_VALID,
                     parse(sizeof(indication), indication).status);
 }
 
 // the message's first attribute
-static stun_attribute_t first_attribute(stun_parse_result_t const *parsed) {
-  TEST_ASSERT_EQUAL(STUN_PARSE_VALID, parsed->status);
+static stun_attribute_t
+first_attribute(stun_message_parse_result_t const *parsed) {
+  TEST_ASSERT_EQUAL(STUN_MESSAGE_PARSE_VALID, parsed->status);
   auto it = stun_message_attributes(&parsed->message);
   stun_attribute_t attribute;
   TEST_ASSERT_TRUE(stun_attribute_next(&it, &attribute));
@@ -247,13 +252,14 @@ static void test_attribute_xor_mapped_address_v6() {
 
 static void test_attribute_xor_mapped_address_invalid() {
   uint8_t const family[] = {SUCCESS(12), XOR_MAPPED_ADDRESS_UNKNOWN_FAMILY};
-  TEST_ASSERT_EQUAL(STUN_PARSE_INVALID, parse(sizeof(family), family).status);
+  TEST_ASSERT_EQUAL(STUN_MESSAGE_PARSE_INVALID,
+                    parse(sizeof(family), family).status);
 
   // an IPv4 address that's too short
   uint8_t const short_value[] = {
       SUCCESS(8), 0x00, 0x20, 0, 4, 0x00, 0x01, 0xA1, 0x47,
   };
-  TEST_ASSERT_EQUAL(STUN_PARSE_INVALID,
+  TEST_ASSERT_EQUAL(STUN_MESSAGE_PARSE_INVALID,
                     parse(sizeof(short_value), short_value).status);
 }
 
@@ -275,19 +281,19 @@ static void test_attribute_error_code() {
 
 static void test_attribute_error_code_invalid() {
   uint8_t const class_too_low[] = {ERROR(8), 0x00, 0x09, 0, 4, 0, 0, 2, 0};
-  TEST_ASSERT_EQUAL(STUN_PARSE_INVALID,
+  TEST_ASSERT_EQUAL(STUN_MESSAGE_PARSE_INVALID,
                     parse(sizeof(class_too_low), class_too_low).status);
 
   uint8_t const class_too_high[] = {ERROR(8), 0x00, 0x09, 0, 4, 0, 0, 7, 0};
-  TEST_ASSERT_EQUAL(STUN_PARSE_INVALID,
+  TEST_ASSERT_EQUAL(STUN_MESSAGE_PARSE_INVALID,
                     parse(sizeof(class_too_high), class_too_high).status);
 
   uint8_t const number_too_high[] = {ERROR(8), 0x00, 0x09, 0, 4, 0, 0, 4, 100};
-  TEST_ASSERT_EQUAL(STUN_PARSE_INVALID,
+  TEST_ASSERT_EQUAL(STUN_MESSAGE_PARSE_INVALID,
                     parse(sizeof(number_too_high), number_too_high).status);
 
   uint8_t const too_short[] = {ERROR(8), 0x00, 0x09, 0, 3, 0, 0, 4, 0};
-  TEST_ASSERT_EQUAL(STUN_PARSE_INVALID,
+  TEST_ASSERT_EQUAL(STUN_MESSAGE_PARSE_INVALID,
                     parse(sizeof(too_short), too_short).status);
 }
 

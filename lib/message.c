@@ -41,14 +41,14 @@ static bool stun_attribute_read(const_view_t datagram,
   return true;
 }
 
-stun_parse_result_t stun_message_parse(const_view_t datagram) {
+stun_message_parse_result_t stun_message_parse(const_view_t datagram) {
   assert(datagram.data);
 
   // the generated decoder checks the zero bits, the cookie and the lengths
   struct stun_wire_message wire;
   if (stun_wire_message_decode(&wire, datagram.data, datagram.size) !=
       STUN_WIRE_OK) {
-    return (stun_parse_result_t){.status = STUN_PARSE_NOT_STUN};
+    return (stun_message_parse_result_t){.status = STUN_MESSAGE_PARSE_NOT_STUN};
   }
 
   stun_header_t header = {
@@ -61,7 +61,8 @@ stun_parse_result_t stun_message_parse(const_view_t datagram) {
          sizeof(header.transaction_id.bytes));
 
   auto const invalid =
-      (stun_parse_result_t){.status = STUN_PARSE_INVALID, .header = header};
+      (stun_message_parse_result_t){.status = STUN_MESSAGE_PARSE_INVALID,
+                                    .header = header};
 
   auto validator = stun_validator_begin(&header);
   size_t offset = STUN_HEADER_SIZE;
@@ -80,8 +81,8 @@ stun_parse_result_t stun_message_parse(const_view_t datagram) {
     return invalid;
   }
 
-  return (stun_parse_result_t){
-      .status = STUN_PARSE_VALID,
+  return (stun_message_parse_result_t){
+      .status = STUN_MESSAGE_PARSE_VALID,
       .message = {.header = header, .datagram = datagram},
   };
 }
