@@ -49,14 +49,14 @@ typedef enum stun_decode_status {
   STUN_DECODE_INVALID,
 } stun_decode_status_t;
 
-static bool stun_attribute_decode_xor_mapped_address(
+static stun_decode_status_t stun_attribute_decode_xor_mapped_address(
     const_view_t value,
     uint8_t const transaction_id[STUN_TRANSACTION_ID_SIZE],
     stun_socket_address_t *out) {
   struct stun_wire_xor_mapped_address address;
   if (stun_wire_xor_mapped_address_decode(&address, value.data, value.size) !=
       STUN_WIRE_OK) {
-    return false;
+    return STUN_DECODE_INVALID;
   }
 
   // the cookie, then the transaction ID for the rest of an IPv6 address
@@ -78,33 +78,33 @@ static bool stun_attribute_decode_xor_mapped_address(
       out->ip.addr[sizeof(STUN_IPV4_MAPPED_PREFIX) + i] =
           address.address.ipv4.addr[i] ^ key[i];
     }
-    return true;
+    return STUN_DECODE_KNOWN;
   case STUN_WIRE_FAMILY_IPV6:
     for (size_t i = 0; i < sizeof(address.address.ipv6.addr); ++i) {
       out->ip.addr[i] = address.address.ipv6.addr[i] ^ key[i];
     }
-    return true;
+    return STUN_DECODE_KNOWN;
   default:
-    return false;
+    return STUN_DECODE_INVALID;
   }
 }
 
-static bool stun_attribute_decode_error_code(const_view_t value,
-                                             uint16_t *out) {
+static stun_decode_status_t stun_attribute_decode_error_code(const_view_t value,
+                                                             uint16_t *out) {
   struct stun_wire_error_code error;
   if (stun_wire_error_code_decode(&error, value.data, value.size) !=
       STUN_WIRE_OK) {
-    return false;
+    return STUN_DECODE_INVALID;
   }
   if (error.class < STUN_ERROR_CODE_CLASS_MIN ||
       error.class > STUN_ERROR_CODE_CLASS_MAX ||
       error.number >= STUN_ERROR_CODE_NUMBERS_PER_CLASS) {
-    return false;
+    return STUN_DECODE_INVALID;
   }
 
   *out = (uint16_t)(error.class * STUN_ERROR_CODE_NUMBERS_PER_CLASS +
                     error.number);
-  return true;
+  return STUN_DECODE_KNOWN;
 }
 
 // the attribute at `offset`, moving past it, or false after the last one
@@ -134,21 +134,17 @@ static bool stun_attribute_read(const_view_t datagram,
 
 static stun_decode_status_t stun_attribute_decode(const_view_t datagram,
                                                   stun_attribute_t *attribute) {
-  bool decoded = false;
   switch (attribute->type) {
   case STUN_ATTRIBUTE_ERROR_CODE:
-    decoded = stun_attribute_decode_error_code(attribute->value,
-                                               &attribute->error_code);
-    break;
+    return stun_attribute_decode_error_code(attribute->value,
+                                            &attribute->error_code);
   case STUN_ATTRIBUTE_XOR_MAPPED_ADDRESS:
-    decoded = stun_attribute_decode_xor_mapped_address(
+    return stun_attribute_decode_xor_mapped_address(
         attribute->value, datagram.data + STUN_TRANSACTION_ID_OFFSET,
         &attribute->xor_mapped_address);
-    break;
   default:
     return STUN_DECODE_UNKNOWN;
   }
-  return decoded ? STUN_DECODE_KNOWN : STUN_DECODE_INVALID;
 }
 
 stun_parse_result_t stun_message_parse(const_view_t datagram) {
