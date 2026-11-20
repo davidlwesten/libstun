@@ -10,8 +10,12 @@ const MAGIC_COOKIE: u32 = 0x2112A442;
 // The length counts the attributes, not the 20-byte header.
 message Message {
   zero: u2 = 0;
-  // interleaves a 12-bit method and a 2-bit class
-  type: u14;
+  // the type interleaves a 12-bit method and a 2-bit class
+  method_high: u5;
+  class_high: u1;
+  method_mid: u3;
+  class_low: u1;
+  method_low: u4;
   length: u16;
   cookie: u32 = 0x2112A442;
   transaction_id: u8[12];

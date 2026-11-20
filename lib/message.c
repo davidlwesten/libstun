@@ -6,16 +6,15 @@
 #include <assert.h>
 #include <string.h>
 
-// The 14-bit type interleaves the method's bits M11-M0 with the class's C1-C0
-// as M11-M7 C1 M6-M4 C0 M3-M0
-static uint16_t stun_message_type(stun_class_t message_class,
-                                  stun_method_t method) {
-  auto const c = (unsigned)message_class;
-  return (uint16_t)((method & 0x000Fu) | (method & 0x0070u) << 1 |
-                    (method & 0x0F80u) << 2 | (c & 1u) << 4 | (c & 2u) << 7);
-}
-
 [[maybe_unused]] static constexpr stun_method_t STUN_METHOD_MAX = 0x0FFF;
+
+// where the method's middle and high parts start, see Message in stun.pkt
+static constexpr unsigned STUN_METHOD_MID_SHIFT = 4;
+static constexpr unsigned STUN_METHOD_HIGH_SHIFT = 7;
+static constexpr unsigned STUN_METHOD_LOW_MASK =
+    (1u << STUN_METHOD_MID_SHIFT) - 1;
+static constexpr unsigned STUN_METHOD_MID_MASK =
+    (1u << (STUN_METHOD_HIGH_SHIFT - STUN_METHOD_MID_SHIFT)) - 1;
 
 // the header, which ends with the transaction ID
 static constexpr size_t STUN_HEADER_SIZE = 20;
@@ -157,11 +156,11 @@ stun_parse_result_t stun_message_parse(const_view_t datagram) {
     return (stun_parse_result_t){.status = STUN_PARSE_NOT_STUN};
   }
 
-  auto const type = wire.type;
   stun_header_t header = {
-      .message_class = (stun_class_t)((type >> 4 & 1) | (type >> 7 & 2)),
-      .method = (stun_method_t)((type & 0x000F) | (type & 0x00E0) >> 1 |
-                                (type & 0x3E00) >> 2),
+      .message_class = (stun_class_t)(wire.class_high << 1 | wire.class_low),
+      .method = (stun_method_t)(wire.method_high << STUN_METHOD_HIGH_SHIFT |
+                                wire.method_mid << STUN_METHOD_MID_SHIFT |
+                                wire.method_low),
   };
   memcpy(header.transaction_id.bytes, wire.transaction_id,
          sizeof(header.transaction_id.bytes));
@@ -198,8 +197,14 @@ size_t stun_message_write(view_t dst,
   assert(method <= STUN_METHOD_MAX);
   assert(transaction_id);
 
+  auto const c = (unsigned)message_class;
   struct stun_wire_message message = {
-      .type = stun_message_type(message_class, method),
+      .method_high = (uint8_t)(method >> STUN_METHOD_HIGH_SHIFT),
+      .class_high = (uint8_t)(c >> 1),
+      .method_mid =
+          (uint8_t)(method >> STUN_METHOD_MID_SHIFT & STUN_METHOD_MID_MASK),
+      .class_low = (uint8_t)(c & 1),
+      .method_low = (uint8_t)(method & STUN_METHOD_LOW_MASK),
   };
   memcpy(message.transaction_id, transaction_id->bytes,
          sizeof(message.transaction_id));

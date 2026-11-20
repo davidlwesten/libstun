@@ -56,14 +56,22 @@ struct stun_wire_attribute_iter {
 
 /* message Message {
  *     zero: u2 = 0;
- *     type: u14;
+ *     method_high: u5;
+ *     class_high: u1;
+ *     method_mid: u3;
+ *     class_low: u1;
+ *     method_low: u4;
  *     length: u16;
  *     cookie: u32 = 0x2112a442;
  *     transaction_id: u8[12];
  *     attributes: Attribute[length];
  * } */
 struct stun_wire_message {
-    uint16_t type;
+    uint8_t method_high;
+    uint8_t class_high;
+    uint8_t method_mid;
+    uint8_t class_low;
+    uint8_t method_low;
     uint8_t transaction_id[12];
     struct stun_wire_attribute_list attributes;
 };

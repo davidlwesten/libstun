@@ -109,7 +109,11 @@ static void build_attribute(struct src *in, struct stun_wire_attribute *v) {
 }
 
 static void build_message(struct src *in, struct stun_wire_message *v) {
-    v->type = (uint16_t)(take_u32(in) & 0x3fff);
+    v->method_high = (uint8_t)(take_u32(in) & 0x1f);
+    v->class_high = (uint8_t)(take_u32(in) & 0x1);
+    v->method_mid = (uint8_t)(take_u32(in) & 0x7);
+    v->class_low = (uint8_t)(take_u32(in) & 0x1);
+    v->method_low = (uint8_t)(take_u32(in) & 0xf);
     take_raw(in, v->transaction_id, 12);
     {
         size_t n = take_u8(in) % 4;

@@ -265,15 +265,21 @@ bool stun_wire_attribute_iter_next(struct stun_wire_attribute_iter *it,
 
 static bool stun_wire_message_read(struct stun_wire_rd *r,
                                    struct stun_wire_message *out) {
-    uint16_t bits0;
-    STUN_WIRE_CHECK(stun_wire_rd_u16(r, &bits0));
-    STUN_WIRE_CHECK((bits0 >> 14) == 0);
-    out->type = (uint16_t)(bits0 & 0x3fff);
+    uint8_t bits0;
+    STUN_WIRE_CHECK(stun_wire_rd_u8(r, &bits0));
+    STUN_WIRE_CHECK((bits0 >> 6) == 0);
+    out->method_high = (uint8_t)((bits0 >> 1) & 0x1f);
+    out->class_high = (uint8_t)(bits0 & 0x1);
+    uint8_t bits1;
+    STUN_WIRE_CHECK(stun_wire_rd_u8(r, &bits1));
+    out->method_mid = (uint8_t)(bits1 >> 5);
+    out->class_low = (uint8_t)((bits1 >> 4) & 0x1);
+    out->method_low = (uint8_t)(bits1 & 0xf);
     uint16_t attributes_len;
     STUN_WIRE_CHECK(stun_wire_rd_u16(r, &attributes_len));
-    uint32_t bits2;
-    STUN_WIRE_CHECK(stun_wire_rd_u32(r, &bits2));
-    STUN_WIRE_CHECK(bits2 == 0x2112a442);
+    uint32_t bits3;
+    STUN_WIRE_CHECK(stun_wire_rd_u32(r, &bits3));
+    STUN_WIRE_CHECK(bits3 == 0x2112a442);
     STUN_WIRE_CHECK(stun_wire_rd_raw(r, out->transaction_id, 12));
     struct stun_wire_rd attributes_r;
     STUN_WIRE_CHECK(stun_wire_rd_sub(r, &attributes_r, attributes_len));
@@ -282,9 +288,21 @@ static bool stun_wire_message_read(struct stun_wire_rd *r,
 
 static stun_wire_status stun_wire_message_write(
     struct stun_wire_wr *w, const struct stun_wire_message *in) {
-    if (in->type > 0x3fff)
+    if (in->method_high > 0x1f)
         return STUN_WIRE_INVALID;
-    STUN_WIRE_TRY(stun_wire_wr_u16(w, (uint16_t)(in->type)));
+    if (in->class_high > 0x1)
+        return STUN_WIRE_INVALID;
+    STUN_WIRE_TRY(stun_wire_wr_u8(w, (uint8_t)(((uint8_t)in->method_high << 1) |
+                                               in->class_high)));
+    if (in->method_mid > 0x7)
+        return STUN_WIRE_INVALID;
+    if (in->class_low > 0x1)
+        return STUN_WIRE_INVALID;
+    if (in->method_low > 0xf)
+        return STUN_WIRE_INVALID;
+    STUN_WIRE_TRY(stun_wire_wr_u8(w, (uint8_t)(((uint8_t)in->method_mid << 5) |
+                                               ((uint8_t)in->class_low << 4) |
+                                               in->method_low)));
     size_t attributes_len = stun_wire_attribute_list_size(&in->attributes);
     if (attributes_len > 0xffff)
         return STUN_WIRE_INVALID;
