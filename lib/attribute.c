@@ -71,6 +71,7 @@ stun_attribute_parse_error_code(const_view_t value, uint16_t *out) {
       STUN_WIRE_OK) {
     return STUN_ATTRIBUTE_PARSE_INVALID;
   }
+
   if (error.class < STUN_ERROR_CODE_CLASS_MIN ||
       error.class > STUN_ERROR_CODE_CLASS_MAX ||
       error.number >= STUN_ERROR_CODE_NUMBERS_PER_CLASS) {

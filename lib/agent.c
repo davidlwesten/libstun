@@ -152,6 +152,7 @@ stun_event_t stun_agent_poll(stun_agent_t *agent, stun_time_ms_t now) {
     if (transaction->handle == 0) {
       continue;
     }
+
     if (transaction->state != PENDING) {
       return stun_agent_report(transaction);
     }

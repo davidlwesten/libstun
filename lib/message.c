@@ -78,6 +78,7 @@ stun_message_parse_result_t stun_message_parse(const_view_t datagram) {
       return invalid;
     }
   }
+
   if (!stun_validator_end(&validator)) {
     return invalid;
   }

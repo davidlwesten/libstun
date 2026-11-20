@@ -17,6 +17,7 @@ static bool fill(void * /*ctx*/, size_t size, uint8_t data[]) {
   if (rng_fails) {
     return false;
   }
+
   for (size_t i = 0; i < size; ++i) {
     data[i] = next_random++;
   }
