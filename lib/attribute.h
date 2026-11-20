@@ -34,11 +34,11 @@ typedef struct stun_attribute {
 } stun_attribute_t;
 
 typedef enum stun_attribute_parse_status {
+  /// Of a type we know, but the value doesn't parse
+  STUN_ATTRIBUTE_PARSE_INVALID = 0,
+  STUN_ATTRIBUTE_PARSE_UNKNOWN,
   /// Of a type we know, with its value in the union
   STUN_ATTRIBUTE_PARSE_KNOWN,
-  STUN_ATTRIBUTE_PARSE_UNKNOWN,
-  /// Of a type we know, but the value doesn't parse
-  STUN_ATTRIBUTE_PARSE_INVALID,
 } stun_attribute_parse_status_t;
 
 typedef struct stun_attribute_parse_result {
