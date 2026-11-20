@@ -45,9 +45,6 @@ typedef struct stun_message_parse_result {
   };
 } stun_message_parse_result_t;
 
-// what lets `header` read a valid result's `message.header`
-static_assert(offsetof(stun_message_t, header) == 0);
-
 /**
  * @brief Parse a datagram as a STUN message
  *

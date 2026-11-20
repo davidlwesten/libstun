@@ -41,6 +41,9 @@ static bool stun_attribute_read(const_view_t datagram,
   return true;
 }
 
+// what lets a result's `header` read a valid one's `message.header`
+static_assert(offsetof(stun_message_t, header) == 0);
+
 stun_message_parse_result_t stun_message_parse(const_view_t datagram) {
   assert(datagram.data);
 

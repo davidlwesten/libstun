@@ -241,6 +241,7 @@ void stun_agent_on_datagram(stun_agent_t *agent,
   if (parsed.status == STUN_MESSAGE_PARSE_NOT_STUN) {
     return;
   }
+
   auto const header = &parsed.header;
   if ((header->message_class != STUN_CLASS_SUCCESS &&
        header->message_class != STUN_CLASS_ERROR) ||
