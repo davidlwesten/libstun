@@ -34,6 +34,13 @@ static constexpr uint8_t STUN_ERROR_CODE_CLASS_MIN = 3;
 static constexpr uint8_t STUN_ERROR_CODE_CLASS_MAX = 6;
 static constexpr uint8_t STUN_ERROR_CODE_NUMBERS_PER_CLASS = 100;
 
+static void stun_store_be32(uint8_t out[static 4], uint32_t value) {
+  out[0] = (uint8_t)(value >> 24);
+  out[1] = (uint8_t)(value >> 16);
+  out[2] = (uint8_t)(value >> 8);
+  out[3] = (uint8_t)value;
+}
+
 typedef enum stun_decode_status {
   /// Of a type we know, with its value in the union
   STUN_DECODE_KNOWN,
@@ -53,12 +60,8 @@ static bool stun_attribute_decode_xor_mapped_address(
   }
 
   // the cookie, then the transaction ID for the rest of an IPv6 address
-  uint8_t key[STUN_MAGIC_COOKIE_SIZE + STUN_TRANSACTION_ID_SIZE] = {
-      STUN_WIRE_MAGIC_COOKIE >> 24,
-      (STUN_WIRE_MAGIC_COOKIE >> 16) & 0xFF,
-      (STUN_WIRE_MAGIC_COOKIE >> 8) & 0xFF,
-      STUN_WIRE_MAGIC_COOKIE & 0xFF,
-  };
+  uint8_t key[STUN_MAGIC_COOKIE_SIZE + STUN_TRANSACTION_ID_SIZE];
+  stun_store_be32(key, STUN_WIRE_MAGIC_COOKIE);
   memcpy(key + STUN_MAGIC_COOKIE_SIZE, transaction_id,
          STUN_TRANSACTION_ID_SIZE);
   static_assert(sizeof(key) == sizeof(out->ip.addr));
