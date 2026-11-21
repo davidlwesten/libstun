@@ -3,6 +3,7 @@
 void setUp() {}
 void tearDown() {}
 
+extern void attribute_tests();
 extern void message_tests();
 extern void retransmit_tests();
 extern void agent_tests();
@@ -14,6 +15,7 @@ int main(int argc, char *argv[]) {
 
   UNITY_BEGIN();
 
+  attribute_tests();
   message_tests();
   retransmit_tests();
   agent_tests();
