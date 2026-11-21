@@ -9,11 +9,15 @@ function(stun_add_library target)
     PRIVATE
       agent.c
       attribute.c
+      attributes/error_code.c
+      attributes/xor_mapped_address.c
       message.c
       retransmit.c
       stun_wire_gen.c)
 
   target_include_directories(${target} PUBLIC ${PROJECT_SOURCE_DIR}/include)
+  # for the attributes, which live in a directory of their own
+  target_include_directories(${target} PRIVATE ${CMAKE_CURRENT_SOURCE_DIR})
 
   target_link_libraries(${target} PRIVATE stun_warnings)
 endfunction()
