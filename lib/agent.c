@@ -206,26 +206,25 @@ static void stun_agent_apply_response(stun_transaction_t *transaction,
                                       stun_message_t const *message) {
   // parsing checked that the response carries what its class and method
   // call for
-  stun_attribute_t attribute;
   switch (message->header.message_class) {
   case STUN_CLASS_ERROR: {
     // whatever the method
-    [[maybe_unused]] bool const found = stun_message_find_attribute(
-        message, STUN_ATTRIBUTE_ERROR_CODE, &attribute);
-    assert(found);
+    auto const error =
+        stun_message_find_attribute(message, STUN_ATTRIBUTE_ERROR_CODE);
+    assert(error.has_value);
     stun_agent_fail(transaction, STUN_FAILURE_ERROR_RESPONSE);
-    transaction->error_code = attribute.error_code;
+    transaction->error_code = error.value.error_code;
     break;
   }
   case STUN_CLASS_SUCCESS: {
     // what a success carries depends on the method, and only Binding
     // responses get this far
     assert(message->header.method == STUN_METHOD_BINDING);
-    [[maybe_unused]] bool const found = stun_message_find_attribute(
-        message, STUN_ATTRIBUTE_XOR_MAPPED_ADDRESS, &attribute);
-    assert(found);
+    auto const address =
+        stun_message_find_attribute(message, STUN_ATTRIBUTE_XOR_MAPPED_ADDRESS);
+    assert(address.has_value);
     transaction->state = SUCCEEDED;
-    transaction->mapped = attribute.xor_mapped_address;
+    transaction->mapped = address.value.xor_mapped_address;
     break;
   }
   case STUN_CLASS_REQUEST:

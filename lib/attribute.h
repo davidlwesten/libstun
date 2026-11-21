@@ -31,6 +31,11 @@ typedef struct stun_attribute {
   };
 } stun_attribute_t;
 
+typedef struct stun_optional_attribute {
+  bool has_value;
+  stun_attribute_t value;
+} stun_optional_attribute_t;
+
 /**
  * @brief Reads a message's attributes in the order they came in
  *
@@ -58,6 +63,13 @@ typedef enum stun_attribute_read_status {
   STUN_ATTRIBUTE_READ_END,
 } stun_attribute_read_status_t;
 
+typedef struct stun_attribute_read_result {
+  stun_attribute_read_status_t status;
+  /// For STUN_ATTRIBUTE_READ_ATTRIBUTE, with its value in the union if its
+  /// type is listed in stun_attribute_type_t
+  stun_attribute_t attribute;
+} stun_attribute_read_result_t;
+
 /**
  * @brief Start reading a message's attributes
  *
@@ -70,11 +82,7 @@ stun_attribute_reader_t stun_attribute_reader_init(stun_header_t const *header,
 /**
  * @brief Read the next attribute
  *
- * @param[in]  reader    The reader to advance
- * @param[out] attribute For STUN_ATTRIBUTE_READ_ATTRIBUTE, the attribute, with
- *                       its value in the union if its type is listed in
- *                       stun_attribute_type_t
+ * @param[in] reader The reader to advance
  */
-stun_attribute_read_status_t
-stun_attribute_reader_next(stun_attribute_reader_t *reader,
-                           stun_attribute_t *attribute);
+stun_attribute_read_result_t
+stun_attribute_reader_next(stun_attribute_reader_t *reader);

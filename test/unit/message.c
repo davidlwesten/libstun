@@ -141,17 +141,18 @@ static void test_message_attributes() {
   TEST_ASSERT_EQUAL(STUN_MESSAGE_PARSE_VALID, parsed.status);
 
   auto it = stun_message_attributes(&parsed.message);
-  stun_attribute_t attribute;
 
   // an optional type we don't know
-  TEST_ASSERT_TRUE(stun_attribute_next(&it, &attribute));
-  TEST_ASSERT_EQUAL_HEX16(0x8022, attribute.type);
+  auto next = stun_attribute_next(&it);
+  TEST_ASSERT_TRUE(next.has_value);
+  TEST_ASSERT_EQUAL_HEX16(0x8022, next.value.type);
 
-  TEST_ASSERT_TRUE(stun_attribute_next(&it, &attribute));
-  TEST_ASSERT_EQUAL_HEX16(STUN_ATTRIBUTE_XOR_MAPPED_ADDRESS, attribute.type);
+  next = stun_attribute_next(&it);
+  TEST_ASSERT_TRUE(next.has_value);
+  TEST_ASSERT_EQUAL_HEX16(STUN_ATTRIBUTE_XOR_MAPPED_ADDRESS, next.value.type);
 
-  TEST_ASSERT_FALSE(stun_attribute_next(&it, &attribute));
-  TEST_ASSERT_FALSE(stun_attribute_next(&it, &attribute));
+  TEST_ASSERT_FALSE(stun_attribute_next(&it).has_value);
+  TEST_ASSERT_FALSE(stun_attribute_next(&it).has_value);
 }
 
 static void test_message_find_attribute() {
@@ -161,13 +162,14 @@ static void test_message_find_attribute() {
   TEST_ASSERT_EQUAL(STUN_MESSAGE_PARSE_VALID, parsed.status);
 
   // the first one of the type, here the IPv6 address
-  stun_attribute_t attribute;
-  TEST_ASSERT_TRUE(stun_message_find_attribute(
-      &parsed.message, STUN_ATTRIBUTE_XOR_MAPPED_ADDRESS, &attribute));
-  TEST_ASSERT_EQUAL_HEX8(0x20, attribute.xor_mapped_address.ip.addr[0]);
+  auto const address = stun_message_find_attribute(
+      &parsed.message, STUN_ATTRIBUTE_XOR_MAPPED_ADDRESS);
+  TEST_ASSERT_TRUE(address.has_value);
+  TEST_ASSERT_EQUAL_HEX8(0x20, address.value.xor_mapped_address.ip.addr[0]);
 
-  TEST_ASSERT_FALSE(stun_message_find_attribute(
-      &parsed.message, STUN_ATTRIBUTE_ERROR_CODE, &attribute));
+  TEST_ASSERT_FALSE(
+      stun_message_find_attribute(&parsed.message, STUN_ATTRIBUTE_ERROR_CODE)
+          .has_value);
 }
 
 static void test_message_no_attributes() {
@@ -176,8 +178,7 @@ static void test_message_no_attributes() {
   TEST_ASSERT_EQUAL(STUN_MESSAGE_PARSE_VALID, parsed.status);
 
   auto it = stun_message_attributes(&parsed.message);
-  stun_attribute_t attribute;
-  TEST_ASSERT_FALSE(stun_attribute_next(&it, &attribute));
+  TEST_ASSERT_FALSE(stun_attribute_next(&it).has_value);
 }
 
 static void test_message_rejects_unknown_required_attributes() {
@@ -248,9 +249,9 @@ static stun_attribute_t
 first_attribute(stun_message_parse_result_t const *parsed) {
   TEST_ASSERT_EQUAL(STUN_MESSAGE_PARSE_VALID, parsed->status);
   auto it = stun_message_attributes(&parsed->message);
-  stun_attribute_t attribute;
-  TEST_ASSERT_TRUE(stun_attribute_next(&it, &attribute));
-  return attribute;
+  auto const first = stun_attribute_next(&it);
+  TEST_ASSERT_TRUE(first.has_value);
+  return first.value;
 }
 
 static void test_attribute_xor_mapped_address_v4() {

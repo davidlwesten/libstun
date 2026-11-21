@@ -82,16 +82,16 @@ stun_message_attributes(stun_message_t const *message);
 /**
  * @brief Get the next attribute
  *
- * @returns false after the last one
+ * @returns The attribute, or nothing after the last one
  */
-bool stun_attribute_next(stun_attribute_iterator_t *iterator,
-                         stun_attribute_t *attribute);
+stun_optional_attribute_t
+stun_attribute_next(stun_attribute_iterator_t *iterator);
 
 /**
  * @brief Find the first attribute of a type
  *
- * @returns false if the message has none
+ * @returns The attribute, or nothing if the message has none
  */
-bool stun_message_find_attribute(stun_message_t const *message,
-                                 stun_attribute_type_t type,
-                                 stun_attribute_t *attribute);
+stun_optional_attribute_t
+stun_message_find_attribute(stun_message_t const *message,
+                            stun_attribute_type_t type);

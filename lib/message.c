@@ -51,13 +51,12 @@ stun_message_parse_result_t stun_message_parse(const_view_t datagram) {
   // attributes themselves are read again when iterating over the message.
   auto reader = stun_attribute_reader_init(
       &header, stun_message_attribute_bytes(datagram));
-  stun_attribute_t attribute;
-  stun_attribute_read_status_t status;
+  stun_attribute_read_result_t read;
   do {
-    status = stun_attribute_reader_next(&reader, &attribute);
-  } while (status == STUN_ATTRIBUTE_READ_ATTRIBUTE);
+    read = stun_attribute_reader_next(&reader);
+  } while (read.status == STUN_ATTRIBUTE_READ_ATTRIBUTE);
 
-  if (status == STUN_ATTRIBUTE_READ_INVALID) {
+  if (read.status == STUN_ATTRIBUTE_READ_INVALID) {
     return (stun_message_parse_result_t){
         .status = STUN_MESSAGE_PARSE_INVALID,
         .header = header,
@@ -107,28 +106,31 @@ stun_message_attributes(stun_message_t const *message) {
   };
 }
 
-bool stun_attribute_next(stun_attribute_iterator_t *iterator,
-                         stun_attribute_t *attribute) {
+stun_optional_attribute_t
+stun_attribute_next(stun_attribute_iterator_t *iterator) {
   assert(iterator);
-  assert(attribute);
 
-  auto const status = stun_attribute_reader_next(&iterator->reader, attribute);
+  auto const read = stun_attribute_reader_next(&iterator->reader);
   // stun_message_parse already read the whole message
-  assert(status != STUN_ATTRIBUTE_READ_INVALID);
-  return status == STUN_ATTRIBUTE_READ_ATTRIBUTE;
+  assert(read.status != STUN_ATTRIBUTE_READ_INVALID);
+  return (stun_optional_attribute_t){
+      .has_value = read.status == STUN_ATTRIBUTE_READ_ATTRIBUTE,
+      .value = read.attribute,
+  };
 }
 
-bool stun_message_find_attribute(stun_message_t const *message,
-                                 stun_attribute_type_t type,
-                                 stun_attribute_t *attribute) {
+stun_optional_attribute_t
+stun_message_find_attribute(stun_message_t const *message,
+                            stun_attribute_type_t type) {
   assert(message);
-  assert(attribute);
 
   auto it = stun_message_attributes(message);
-  while (stun_attribute_next(&it, attribute)) {
-    if (attribute->type == type) {
-      return true;
+  for (auto next = stun_attribute_next(&it); next.has_value;
+       next = stun_attribute_next(&it)) {
+    if (next.value.type == type) {
+      return next;
     }
   }
-  return false;
+
+  return (stun_optional_attribute_t){};
 }

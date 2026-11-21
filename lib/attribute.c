@@ -161,17 +161,21 @@ stun_attribute_reader_t stun_attribute_reader_init(stun_header_t const *header,
   return (stun_attribute_reader_t){.header = *header, .remaining = attributes};
 }
 
-stun_attribute_read_status_t
-stun_attribute_reader_next(stun_attribute_reader_t *reader,
-                           stun_attribute_t *attribute) {
+stun_attribute_read_result_t
+stun_attribute_reader_next(stun_attribute_reader_t *reader) {
   assert(reader);
-  assert(attribute);
+
+  auto const invalid =
+      (stun_attribute_read_result_t){.status = STUN_ATTRIBUTE_READ_INVALID};
 
   auto const remaining = reader->remaining;
   if (remaining.size == 0) {
     auto const required = stun_attribute_required(&reader->header);
-    return (reader->seen & required) == required ? STUN_ATTRIBUTE_READ_END
-                                                 : STUN_ATTRIBUTE_READ_INVALID;
+    if ((reader->seen & required) != required) {
+      return invalid;
+    }
+
+    return (stun_attribute_read_result_t){.status = STUN_ATTRIBUTE_READ_END};
   }
 
   struct stun_wire_attribute_iter it = {
@@ -180,7 +184,7 @@ stun_attribute_reader_next(stun_attribute_reader_t *reader,
   };
   struct stun_wire_attribute wire;
   if (!stun_wire_attribute_iter_next(&it, &wire)) {
-    return STUN_ATTRIBUTE_READ_INVALID;
+    return invalid;
   }
 
   auto const consumed = (size_t)(it.pos - remaining.data);
@@ -192,14 +196,16 @@ stun_attribute_reader_next(stun_attribute_reader_t *reader,
   if (descriptor) {
     const_view_t const value = {.size = wire.value.len, .data = wire.value.ptr};
     if (!descriptor->parse(value, &reader->header, &parsed)) {
-      return STUN_ATTRIBUTE_READ_INVALID;
+      return invalid;
     }
 
     reader->seen |= stun_attribute_seen_bit(descriptor);
   } else if (stun_attribute_is_comprehension_required(parsed.type)) {
-    return STUN_ATTRIBUTE_READ_INVALID;
+    return invalid;
   }
 
-  *attribute = parsed;
-  return STUN_ATTRIBUTE_READ_ATTRIBUTE;
+  return (stun_attribute_read_result_t){
+      .status = STUN_ATTRIBUTE_READ_ATTRIBUTE,
+      .attribute = parsed,
+  };
 }
