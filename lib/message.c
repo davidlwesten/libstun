@@ -5,23 +5,22 @@
 #include <assert.h>
 #include <string.h>
 
-[[maybe_unused]] static constexpr stun_method_t STUN_METHOD_MAX = 0x0FFF;
+[[maybe_unused]] static constexpr stun_method_t METHOD_MAX = 0x0FFF;
 
 // where the method's middle and high parts start, see Message in stun.pkt
-static constexpr unsigned STUN_METHOD_MID_SHIFT = 4;
-static constexpr unsigned STUN_METHOD_HIGH_SHIFT = 7;
-static constexpr unsigned STUN_METHOD_LOW_MASK =
-    (1u << STUN_METHOD_MID_SHIFT) - 1;
-static constexpr unsigned STUN_METHOD_MID_MASK =
-    (1u << (STUN_METHOD_HIGH_SHIFT - STUN_METHOD_MID_SHIFT)) - 1;
+static constexpr unsigned METHOD_MID_SHIFT = 4;
+static constexpr unsigned METHOD_HIGH_SHIFT = 7;
+static constexpr unsigned METHOD_LOW_MASK = (1u << METHOD_MID_SHIFT) - 1;
+static constexpr unsigned METHOD_MID_MASK =
+    (1u << (METHOD_HIGH_SHIFT - METHOD_MID_SHIFT)) - 1;
 
-static constexpr size_t STUN_HEADER_SIZE = 20;
+static constexpr size_t HEADER_SIZE = 20;
 
 // all of a message after its header
-static const_view_t stun_message_attribute_bytes(const_view_t datagram) {
-  assert(datagram.size >= STUN_HEADER_SIZE);
-  return (const_view_t){.size = datagram.size - STUN_HEADER_SIZE,
-                        .data = datagram.data + STUN_HEADER_SIZE};
+static const_view_t attribute_bytes(const_view_t datagram) {
+  assert(datagram.size >= HEADER_SIZE);
+  return (const_view_t){.size = datagram.size - HEADER_SIZE,
+                        .data = datagram.data + HEADER_SIZE};
 }
 
 // what lets a result's `header` read a valid one's `message.header`
@@ -39,8 +38,8 @@ stun_message_parse_result_t stun_message_parse(const_view_t datagram) {
 
   stun_header_t header = {
       .message_class = (stun_class_t)(wire.class_high << 1 | wire.class_low),
-      .method = (stun_method_t)(wire.method_high << STUN_METHOD_HIGH_SHIFT |
-                                wire.method_mid << STUN_METHOD_MID_SHIFT |
+      .method = (stun_method_t)(wire.method_high << METHOD_HIGH_SHIFT |
+                                wire.method_mid << METHOD_MID_SHIFT |
                                 wire.method_low),
   };
   memcpy(header.transaction_id.bytes, wire.transaction_id,
@@ -49,8 +48,7 @@ stun_message_parse_result_t stun_message_parse(const_view_t datagram) {
   // read every attribute only for the reader to check them against its rules,
   // ending in STUN_ATTRIBUTE_READ_END if the message follows all of them. The
   // attributes themselves are read again when iterating over the message.
-  auto reader = stun_attribute_reader_init(
-      &header, stun_message_attribute_bytes(datagram));
+  auto reader = stun_attribute_reader_init(&header, attribute_bytes(datagram));
   stun_attribute_read_result_t read;
   do {
     read = stun_attribute_reader_next(&reader);
@@ -74,17 +72,16 @@ size_t stun_message_write(view_t dst,
                           stun_method_t method,
                           stun_transaction_id_t const *transaction_id) {
   assert(dst.data);
-  assert(method <= STUN_METHOD_MAX);
+  assert(method <= METHOD_MAX);
   assert(transaction_id);
 
   auto const c = (unsigned)message_class;
   struct stun_wire_message message = {
-      .method_high = (uint8_t)(method >> STUN_METHOD_HIGH_SHIFT),
+      .method_high = (uint8_t)(method >> METHOD_HIGH_SHIFT),
       .class_high = (uint8_t)(c >> 1),
-      .method_mid =
-          (uint8_t)(method >> STUN_METHOD_MID_SHIFT & STUN_METHOD_MID_MASK),
+      .method_mid = (uint8_t)(method >> METHOD_MID_SHIFT & METHOD_MID_MASK),
       .class_low = (uint8_t)(c & 1),
-      .method_low = (uint8_t)(method & STUN_METHOD_LOW_MASK),
+      .method_low = (uint8_t)(method & METHOD_LOW_MASK),
   };
   memcpy(message.transaction_id, transaction_id->bytes,
          sizeof(message.transaction_id));
@@ -101,8 +98,8 @@ stun_attribute_iterator_t
 stun_message_attributes(stun_message_t const *message) {
   assert(message);
   return (stun_attribute_iterator_t){
-      .reader = stun_attribute_reader_init(
-          &message->header, stun_message_attribute_bytes(message->datagram)),
+      .reader = stun_attribute_reader_init(&message->header,
+                                           attribute_bytes(message->datagram)),
   };
 }
 

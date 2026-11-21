@@ -11,12 +11,12 @@
 #define ALLOC(allocator, ...) (allocator.alloc(allocator.ctx, __VA_ARGS__))
 #define FREE(allocator, ...) (allocator.free(allocator.ctx, __VA_ARGS__))
 
-static constexpr uint16_t STUN_DEFAULT_CAPACITY = 8;
+static constexpr uint16_t DEFAULT_CAPACITY = 8;
 
 // a Binding request without attributes is just the header
-static constexpr size_t STUN_BINDING_REQUEST_SIZE = 20;
+static constexpr size_t BINDING_REQUEST_SIZE = 20;
 
-typedef struct stun_transaction {
+typedef struct transaction {
   /// 0 while the slot is free
   stun_handle_t handle;
   enum {
@@ -33,41 +33,39 @@ typedef struct stun_transaction {
   stun_failure_t failure;
   /// Once FAILED with STUN_FAILURE_ERROR_RESPONSE
   uint16_t error_code;
-} stun_transaction_t;
+} transaction_t;
 
 struct stun_agent {
   stun_config_t config;
   stun_handle_t last_handle;
-  uint8_t outgoing_data[STUN_BINDING_REQUEST_SIZE];
+  uint8_t outgoing_data[BINDING_REQUEST_SIZE];
   /// `config.capacity` of them, each kept until its last event is polled
-  stun_transaction_t transactions[];
+  transaction_t transactions[];
 };
 
-static void *stun_default_alloc(void * /*ctx*/, size_t size) {
-  return malloc(size);
-}
+static void *default_alloc(void * /*ctx*/, size_t size) { return malloc(size); }
 
-static void stun_default_free(void * /*ctx*/, void *ptr) { free(ptr); }
+static void default_free(void * /*ctx*/, void *ptr) { free(ptr); }
 
 stun_agent_t *stun_agent_begin(stun_config_t config) {
   if (!config.allocator.alloc && !config.allocator.free) {
-    config.allocator.alloc = stun_default_alloc;
-    config.allocator.free = stun_default_free;
+    config.allocator.alloc = default_alloc;
+    config.allocator.free = default_free;
   }
   assert(config.allocator.alloc && config.allocator.free);
   assert(config.rng.fill);
 
   if (config.capacity == 0) {
-    config.capacity = STUN_DEFAULT_CAPACITY;
+    config.capacity = DEFAULT_CAPACITY;
   }
 
   stun_agent_t *agent =
-      ALLOC(config.allocator, sizeof(stun_agent_t) +
-                                  config.capacity * sizeof(stun_transaction_t));
+      ALLOC(config.allocator,
+            sizeof(stun_agent_t) + config.capacity * sizeof(transaction_t));
   if (agent) {
     *agent = (stun_agent_t){.config = config};
     for (size_t i = 0; i < config.capacity; ++i) {
-      agent->transactions[i] = (stun_transaction_t){};
+      agent->transactions[i] = (transaction_t){};
     }
   }
 
@@ -79,8 +77,8 @@ void stun_agent_end(stun_agent_t *agent) {
   FREE(agent->config.allocator, agent);
 }
 
-static stun_transaction_t *stun_agent_find(stun_agent_t *agent,
-                                           stun_handle_t handle) {
+static transaction_t *find_transaction(stun_agent_t *agent,
+                                       stun_handle_t handle) {
   for (size_t i = 0; i < agent->config.capacity; ++i) {
     if (agent->transactions[i].handle == handle) {
       return &agent->transactions[i];
@@ -91,18 +89,18 @@ static stun_transaction_t *stun_agent_find(stun_agent_t *agent,
 
 // the next handle that isn't 0 or in use, which there is one of while a slot
 // is free
-static stun_handle_t stun_agent_next_handle(stun_agent_t *agent) {
+static stun_handle_t next_handle(stun_agent_t *agent) {
   do {
     agent->last_handle += 1;
   } while (agent->last_handle == 0 ||
-           stun_agent_find(agent, agent->last_handle));
+           find_transaction(agent, agent->last_handle));
   return agent->last_handle;
 }
 
 stun_handle_or_error_t stun_agent_binding_request(stun_agent_t *agent) {
   assert(agent);
 
-  auto const transaction = stun_agent_find(agent, 0);
+  auto const transaction = find_transaction(agent, 0);
   if (!transaction) {
     return (stun_handle_or_error_t){.has_value = false, .error = ENOBUFS};
   }
@@ -113,8 +111,8 @@ stun_handle_or_error_t stun_agent_binding_request(stun_agent_t *agent) {
     return (stun_handle_or_error_t){.has_value = false, .error = EIO};
   }
 
-  *transaction = (stun_transaction_t){
-      .handle = stun_agent_next_handle(agent),
+  *transaction = (transaction_t){
+      .handle = next_handle(agent),
       .state = PENDING,
       .id = id,
   };
@@ -123,7 +121,7 @@ stun_handle_or_error_t stun_agent_binding_request(stun_agent_t *agent) {
 }
 
 // the event for a transaction that's done, which frees its slot
-static stun_event_t stun_agent_report(stun_transaction_t *transaction) {
+static stun_event_t report(transaction_t *transaction) {
   auto const event =
       transaction->state == SUCCEEDED
           ? (stun_event_t){.type = STUN_EVENT_BOUND,
@@ -133,12 +131,11 @@ static stun_event_t stun_agent_report(stun_transaction_t *transaction) {
                            .failed = {.handle = transaction->handle,
                                       .reason = transaction->failure,
                                       .error_code = transaction->error_code}};
-  *transaction = (stun_transaction_t){};
+  *transaction = (transaction_t){};
   return event;
 }
 
-static void stun_agent_fail(stun_transaction_t *transaction,
-                            stun_failure_t failure) {
+static void fail(transaction_t *transaction, stun_failure_t failure) {
   transaction->state = FAILED;
   transaction->failure = failure;
 }
@@ -154,7 +151,7 @@ stun_event_t stun_agent_poll(stun_agent_t *agent, stun_time_ms_t now) {
     }
 
     if (transaction->state != PENDING) {
-      return stun_agent_report(transaction);
+      return report(transaction);
     }
 
     switch (stun_retransmit_poll(&transaction->retransmit, now)) {
@@ -179,8 +176,8 @@ stun_event_t stun_agent_poll(stun_agent_t *agent, stun_time_ms_t now) {
       };
     }
     case STUN_RETRANSMIT_GAVE_UP:
-      stun_agent_fail(transaction, STUN_FAILURE_TIMEOUT);
-      return stun_agent_report(transaction);
+      fail(transaction, STUN_FAILURE_TIMEOUT);
+      return report(transaction);
     }
   }
 
@@ -189,8 +186,8 @@ stun_event_t stun_agent_poll(stun_agent_t *agent, stun_time_ms_t now) {
 }
 
 // by transaction ID alone, since every request is a Binding request
-static stun_transaction_t *
-stun_agent_find_pending(stun_agent_t *agent, stun_header_t const *header) {
+static transaction_t *find_pending(stun_agent_t *agent,
+                                   stun_header_t const *header) {
   for (size_t i = 0; i < agent->config.capacity; ++i) {
     auto const transaction = &agent->transactions[i];
     if (transaction->handle != 0 && transaction->state == PENDING &&
@@ -202,8 +199,8 @@ stun_agent_find_pending(stun_agent_t *agent, stun_header_t const *header) {
   return nullptr;
 }
 
-static void stun_agent_apply_response(stun_transaction_t *transaction,
-                                      stun_message_t const *message) {
+static void apply_response(transaction_t *transaction,
+                           stun_message_t const *message) {
   // parsing checked that the response carries what its class and method
   // call for
   switch (message->header.message_class) {
@@ -212,7 +209,7 @@ static void stun_agent_apply_response(stun_transaction_t *transaction,
     auto const error =
         stun_message_find_attribute(message, STUN_ATTRIBUTE_ERROR_CODE);
     assert(error.has_value);
-    stun_agent_fail(transaction, STUN_FAILURE_ERROR_RESPONSE);
+    fail(transaction, STUN_FAILURE_ERROR_RESPONSE);
     transaction->error_code = error.value.error_code;
     break;
   }
@@ -257,14 +254,14 @@ void stun_agent_on_datagram(stun_agent_t *agent,
   }
 
   // a late answer to a retransmission finds its transaction done or gone
-  auto const transaction = stun_agent_find_pending(agent, header);
+  auto const transaction = find_pending(agent, header);
   if (!transaction) {
     return;
   }
 
   if (parsed.status == STUN_MESSAGE_PARSE_VALID) {
-    stun_agent_apply_response(transaction, &parsed.message);
+    apply_response(transaction, &parsed.message);
   } else {
-    stun_agent_fail(transaction, STUN_FAILURE_INVALID_RESPONSE);
+    fail(transaction, STUN_FAILURE_INVALID_RESPONSE);
   }
 }
