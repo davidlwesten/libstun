@@ -38,10 +38,9 @@ static stun_attribute_type_t stun_attribute_type_of(uint16_t wire_type) {
   }
 }
 
-// one bit each in stun_attribute_reader_t::seen
-static_assert(STUN_ATTRIBUTE_TYPE_COUNT <= 32);
-
 static uint32_t stun_attribute_seen_bit(stun_attribute_type_t type) {
+  // one bit each in stun_attribute_reader_t::seen
+  static_assert(STUN_ATTRIBUTE_TYPE_COUNT <= 32);
   return 1u << type;
 }
 
@@ -65,10 +64,9 @@ static uint32_t stun_attribute_required_by(stun_header_t const *header) {
   return 0;
 }
 
-// types from here up are comprehension-optional
-static constexpr uint16_t STUN_ATTRIBUTE_COMPREHENSION_OPTIONAL = 0x8000;
-
 static bool stun_attribute_is_comprehension_required(uint16_t wire_type) {
+  // types from here up are comprehension-optional
+  constexpr uint16_t STUN_ATTRIBUTE_COMPREHENSION_OPTIONAL = 0x8000;
   return wire_type < STUN_ATTRIBUTE_COMPREHENSION_OPTIONAL;
 }
 
@@ -93,29 +91,28 @@ stun_attribute_reader_next(stun_attribute_reader_t *reader) {
     return (stun_attribute_read_result_t){.status = STUN_ATTRIBUTE_READ_END};
   }
 
-  struct stun_wire_attribute_iter it = {
-      .pos = remaining.data,
-      .end = remaining.data + remaining.size,
-  };
+  struct stun_wire_attribute_iter it = {.pos = remaining.data,
+                                        .end = remaining.data + remaining.size};
   struct stun_wire_attribute wire;
   if (!stun_wire_attribute_iter_next(&it, &wire)) {
     return STUN_INVALID_READ_RESULT;
   }
 
-  auto const consumed = (size_t)(it.pos - remaining.data);
   reader->remaining =
-      (const_view_t){.size = remaining.size - consumed, .data = it.pos};
+      (const_view_t){.size = (size_t)(it.end - it.pos), .data = it.pos};
 
   auto const type = stun_attribute_type_of(wire.type);
   if (type == STUN_ATTRIBUTE_UNKNOWN) {
-    if (stun_attribute_is_comprehension_required(wire.type)) {
-      return STUN_INVALID_READ_RESULT;
-    }
-
-    return (stun_attribute_read_result_t){
-        .status = STUN_ATTRIBUTE_READ_ATTRIBUTE,
-        .attribute = {.type = type, .unknown = {.wire_type = wire.type}},
-    };
+    return stun_attribute_is_comprehension_required(wire.type)
+               ? STUN_INVALID_READ_RESULT
+               : (stun_attribute_read_result_t){
+                     .status = STUN_ATTRIBUTE_READ_ATTRIBUTE,
+                     .attribute =
+                         {
+                             .type = type,
+                             .unknown = {.wire_type = wire.type},
+                         },
+                 };
   }
 
   const_view_t const value = {.size = wire.value.len, .data = wire.value.ptr};
