@@ -25,14 +25,18 @@ static void stun_store_be32(uint8_t out[static 4], uint32_t value) {
   out[3] = (uint8_t)value;
 }
 
-static bool
+// what reading an attribute gives when the message breaks a rule
+static constexpr stun_attribute_read_result_t STUN_INVALID_READ_RESULT = {
+    .status = STUN_ATTRIBUTE_READ_INVALID,
+};
+
+static stun_attribute_read_result_t
 stun_attribute_parse_xor_mapped_address(const_view_t value,
-                                        stun_header_t const *header,
-                                        stun_attribute_t *attribute) {
+                                        stun_header_t const *header) {
   struct stun_wire_xor_mapped_address address;
   if (stun_wire_xor_mapped_address_decode(&address, value.data, value.size) !=
       STUN_WIRE_OK) {
-    return false;
+    return STUN_INVALID_READ_RESULT;
   }
 
   // the cookie, then the transaction ID for the rest of an IPv6 address
@@ -41,7 +45,11 @@ stun_attribute_parse_xor_mapped_address(const_view_t value,
   stun_store_be32(key, STUN_WIRE_MAGIC_COOKIE);
   memcpy(key + STUN_MAGIC_COOKIE_SIZE, id->bytes, sizeof(id->bytes));
 
-  auto const out = &attribute->xor_mapped_address;
+  stun_attribute_read_result_t result = {
+      .status = STUN_ATTRIBUTE_READ_ATTRIBUTE,
+      .attribute = {.type = STUN_ATTRIBUTE_XOR_MAPPED_ADDRESS},
+  };
+  auto const out = &result.attribute.xor_mapped_address;
   static_assert(sizeof(key) == sizeof(out->ip.addr));
   out->port = address.port ^ (uint16_t)(STUN_WIRE_MAGIC_COOKIE >> 16);
   switch (address.family) {
@@ -55,54 +63,65 @@ stun_attribute_parse_xor_mapped_address(const_view_t value,
       out->ip.addr[sizeof(STUN_IPV4_MAPPED_PREFIX) + i] =
           address.address.ipv4.addr[i] ^ key[i];
     }
-    return true;
+    return result;
   case STUN_WIRE_FAMILY_IPV6:
     for (size_t i = 0; i < sizeof(address.address.ipv6.addr); ++i) {
       out->ip.addr[i] = address.address.ipv6.addr[i] ^ key[i];
     }
-    return true;
+    return result;
   default:
-    return false;
+    return STUN_INVALID_READ_RESULT;
   }
 }
 
-static bool stun_attribute_parse_error_code(const_view_t value,
-                                            stun_header_t const *,
-                                            stun_attribute_t *attribute) {
+static stun_attribute_read_result_t
+stun_attribute_parse_error_code(const_view_t value, stun_header_t const *) {
   struct stun_wire_error_code error;
   if (stun_wire_error_code_decode(&error, value.data, value.size) !=
       STUN_WIRE_OK) {
-    return false;
+    return STUN_INVALID_READ_RESULT;
   }
 
   if (error.class < STUN_ERROR_CODE_CLASS_MIN ||
       error.class > STUN_ERROR_CODE_CLASS_MAX ||
       error.number >= STUN_ERROR_CODE_NUMBERS_PER_CLASS) {
-    return false;
+    return STUN_INVALID_READ_RESULT;
   }
 
-  attribute->error_code =
-      (uint16_t)(error.class * STUN_ERROR_CODE_NUMBERS_PER_CLASS +
-                 error.number);
-  return true;
+  return (stun_attribute_read_result_t){
+      .status = STUN_ATTRIBUTE_READ_ATTRIBUTE,
+      .attribute =
+          {
+              .type = STUN_ATTRIBUTE_ERROR_CODE,
+              .error_code =
+                  (uint16_t)(error.class * STUN_ERROR_CODE_NUMBERS_PER_CLASS +
+                             error.number),
+          },
+  };
 }
 
 typedef struct stun_attribute_descriptor {
   /// The type's code on the wire
   uint16_t code;
-  /// Fills in the type's member of the union, or returns false if the value
-  /// doesn't parse
-  bool (*parse)(const_view_t value,
-                stun_header_t const *header,
-                stun_attribute_t *attribute);
+  /// The attribute of this type that `value` holds, or
+  /// STUN_ATTRIBUTE_READ_INVALID if it doesn't parse
+  stun_attribute_read_result_t (*parse)(const_view_t value,
+                                        stun_header_t const *header);
 } stun_attribute_descriptor_t;
 
 // every type we know, at its value in stun_attribute_type_t
 static stun_attribute_descriptor_t const
     STUN_ATTRIBUTES[STUN_ATTRIBUTE_TYPE_COUNT] = {
-        [STUN_ATTRIBUTE_ERROR_CODE] = {0x0009, stun_attribute_parse_error_code},
+        [STUN_ATTRIBUTE_ERROR_CODE] =
+            {
+                0x0009,
+                stun_attribute_parse_error_code,
+            },
         [STUN_ATTRIBUTE_XOR_MAPPED_ADDRESS] =
-            {0x0020, stun_attribute_parse_xor_mapped_address},
+            {
+                0x0020,
+                stun_attribute_parse_xor_mapped_address,
+            },
 };
 
 // the type with that code on the wire
@@ -163,14 +182,11 @@ stun_attribute_read_result_t
 stun_attribute_reader_next(stun_attribute_reader_t *reader) {
   assert(reader);
 
-  auto const invalid =
-      (stun_attribute_read_result_t){.status = STUN_ATTRIBUTE_READ_INVALID};
-
   auto const remaining = reader->remaining;
   if (remaining.size == 0) {
     auto const required = stun_attribute_required_by(&reader->header);
     if ((reader->seen & required) != required) {
-      return invalid;
+      return STUN_INVALID_READ_RESULT;
     }
 
     return (stun_attribute_read_result_t){.status = STUN_ATTRIBUTE_READ_END};
@@ -182,7 +198,7 @@ stun_attribute_reader_next(stun_attribute_reader_t *reader) {
   };
   struct stun_wire_attribute wire;
   if (!stun_wire_attribute_iter_next(&it, &wire)) {
-    return invalid;
+    return STUN_INVALID_READ_RESULT;
   }
 
   auto const consumed = (size_t)(it.pos - remaining.data);
@@ -190,24 +206,23 @@ stun_attribute_reader_next(stun_attribute_reader_t *reader) {
       (const_view_t){.size = remaining.size - consumed, .data = it.pos};
 
   auto const type = stun_attribute_type_of(wire.type);
-  stun_attribute_t parsed = {.type = type};
   if (type == STUN_ATTRIBUTE_UNKNOWN) {
     if (stun_attribute_is_comprehension_required(wire.type)) {
-      return invalid;
+      return STUN_INVALID_READ_RESULT;
     }
 
-    parsed.unknown.code = wire.type;
-  } else {
-    const_view_t const value = {.size = wire.value.len, .data = wire.value.ptr};
-    if (!STUN_ATTRIBUTES[type].parse(value, &reader->header, &parsed)) {
-      return invalid;
-    }
+    return (stun_attribute_read_result_t){
+        .status = STUN_ATTRIBUTE_READ_ATTRIBUTE,
+        .attribute = {.type = type, .unknown = {.code = wire.type}},
+    };
+  }
 
+  const_view_t const value = {.size = wire.value.len, .data = wire.value.ptr};
+  auto const read = STUN_ATTRIBUTES[type].parse(value, &reader->header);
+  if (read.status == STUN_ATTRIBUTE_READ_ATTRIBUTE) {
+    assert(read.attribute.type == type);
     reader->seen |= stun_attribute_seen_bit(type);
   }
 
-  return (stun_attribute_read_result_t){
-      .status = STUN_ATTRIBUTE_READ_ATTRIBUTE,
-      .attribute = parsed,
-  };
+  return read;
 }
