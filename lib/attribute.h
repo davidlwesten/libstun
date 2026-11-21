@@ -37,13 +37,17 @@ typedef struct stun_optional_attribute {
 } stun_optional_attribute_t;
 
 /**
- * @brief Reads a message's attributes in the order they came in
+ * @brief Reads attributes that haven't been checked yet, in the order they
+ *        came in
  *
  * Parses each one, and checks the message against the rules for its
  * attributes as it goes: no attribute may fail to decode or parse, none of the
  * comprehension-required ones may be of a type we don't know, and the message
  * has to carry what its class and method call for (an error response an
  * ERROR-CODE, a Binding success response an XOR-MAPPED-ADDRESS).
+ *
+ * This is how stun_message_parse checks a message. To read the attributes of
+ * one it parsed, use stun_message_attributes, which can't fail.
  */
 typedef struct stun_attribute_reader {
   /// The message's, which parsing its attributes needs

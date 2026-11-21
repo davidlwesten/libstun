@@ -69,12 +69,16 @@ size_t stun_message_write(view_t dst,
                           stun_method_t method,
                           stun_transaction_id_t const *transaction_id);
 
+/**
+ * @brief A parsed message's attributes, which can't fail to read because
+ *        parsing already checked them with stun_attribute_reader_t
+ */
 typedef struct stun_attribute_iterator {
   stun_attribute_reader_t reader;
 } stun_attribute_iterator_t;
 
 /**
- * @brief Iterate over a message's attributes in the order they came in
+ * @brief Iterate over a parsed message's attributes in the order they came in
  */
 stun_attribute_iterator_t
 stun_message_attributes(stun_message_t const *message);
