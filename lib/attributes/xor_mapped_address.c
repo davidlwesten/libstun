@@ -35,8 +35,10 @@ static void fill_xor_key(stun_transaction_id_t const *transaction_id,
          STUN_TRANSACTION_ID_SIZE);
 }
 
-static void
-xor_bytes(size_t size, uint8_t out[], uint8_t const in[], uint8_t const key[]) {
+static void xor_bytes(size_t size,
+                      uint8_t out[size],
+                      uint8_t const in[size],
+                      uint8_t const key[size]) {
   for (size_t i = 0; i < size; ++i) {
     out[i] = in[i] ^ key[i];
   }
