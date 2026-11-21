@@ -3,9 +3,10 @@
 #include <stdint.h>
 
 #include "header.h"
+#include "view.h"
 #include <byo/stun/stun.h>
 
-// Giving one decoded attribute (RFC 8489) its meaning
+// Reading a message's attributes (RFC 8489) and giving them their meaning
 
 /**
  * @brief Attribute types
@@ -30,28 +31,50 @@ typedef struct stun_attribute {
   };
 } stun_attribute_t;
 
-typedef enum stun_attribute_parse_status {
-  /// Of a type we know, but the value doesn't parse
-  STUN_ATTRIBUTE_PARSE_INVALID = 0,
-  STUN_ATTRIBUTE_PARSE_UNKNOWN,
-  /// Of a type we know, with its value in the union
-  STUN_ATTRIBUTE_PARSE_KNOWN,
-} stun_attribute_parse_status_t;
+/**
+ * @brief Reads a message's attributes in the order they came in
+ *
+ * Parses each one, and checks the message against the rules for its
+ * attributes as it goes: no attribute may fail to decode or parse, none of the
+ * comprehension-required ones may be of a type we don't know, and the message
+ * has to carry what its class and method call for (an error response an
+ * ERROR-CODE, a Binding success response an XOR-MAPPED-ADDRESS).
+ */
+typedef struct stun_attribute_reader {
+  /// The message's, which parsing its attributes needs
+  stun_header_t header;
+  /// The attributes not read yet
+  const_view_t remaining;
+  /// The known types read so far, one bit each
+  uint32_t seen;
+} stun_attribute_reader_t;
 
-typedef struct stun_attribute_parse_result {
-  stun_attribute_parse_status_t status;
-  /// Its type whatever the status, and the union if it's KNOWN
-  stun_attribute_t attribute;
-} stun_attribute_parse_result_t;
-
-struct stun_wire_attribute;
+typedef enum stun_attribute_read_status {
+  /// The message breaks one of the rules
+  STUN_ATTRIBUTE_READ_INVALID = 0,
+  /// The next attribute was read
+  STUN_ATTRIBUTE_READ_ATTRIBUTE,
+  /// After the last attribute, and the message follows the rules
+  STUN_ATTRIBUTE_READ_END,
+} stun_attribute_read_status_t;
 
 /**
- * @brief Parse a decoded attribute
+ * @brief Start reading a message's attributes
  *
- * @param[in] header The header of the message it came in
- * @param[in] wire   The attribute as decoded
+ * @param[in] header     The message's header
+ * @param[in] attributes All of the message after its header
  */
-stun_attribute_parse_result_t
-stun_attribute_parse(stun_header_t const *header,
-                     struct stun_wire_attribute const *wire);
+stun_attribute_reader_t stun_attribute_reader_init(stun_header_t const *header,
+                                                   const_view_t attributes);
+
+/**
+ * @brief Read the next attribute
+ *
+ * @param[in]  reader    The reader to advance
+ * @param[out] attribute For STUN_ATTRIBUTE_READ_ATTRIBUTE, the attribute, with
+ *                       its value in the union if its type is listed in
+ *                       stun_attribute_type_t
+ */
+stun_attribute_read_status_t
+stun_attribute_reader_next(stun_attribute_reader_t *reader,
+                           stun_attribute_t *attribute);

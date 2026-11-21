@@ -11,8 +11,7 @@ function(stun_add_library target)
       attribute.c
       message.c
       retransmit.c
-      stun_wire_gen.c
-      validator.c)
+      stun_wire_gen.c)
 
   target_include_directories(${target} PUBLIC ${PROJECT_SOURCE_DIR}/include)
 

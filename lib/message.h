@@ -49,11 +49,8 @@ typedef struct stun_message_parse_result {
  * @brief Parse a datagram as a STUN message
  *
  * Checks the framing (the zero bits, the magic cookie, and lengths that add up
- * to exactly `datagram`) and every attribute: those listed in
- * stun_attribute_type_t have to parse, and others mustn't be
- * comprehension-required. Then checks the message carries what its class and
- * method call for: an error response an ERROR-CODE, and a Binding success
- * response an XOR-MAPPED-ADDRESS.
+ * to exactly `datagram`), then reads every attribute with
+ * stun_attribute_reader_t, which checks them against its rules.
  */
 stun_message_parse_result_t stun_message_parse(const_view_t datagram);
 
@@ -73,12 +70,7 @@ size_t stun_message_write(view_t dst,
                           stun_transaction_id_t const *transaction_id);
 
 typedef struct stun_attribute_iterator {
-  /// The message's, which parsing its attributes needs
-  stun_header_t header;
-  /// All of the message, header included
-  const_view_t datagram;
-  /// Where the next attribute starts
-  size_t offset;
+  stun_attribute_reader_t reader;
 } stun_attribute_iterator_t;
 
 /**

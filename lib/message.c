@@ -1,7 +1,6 @@
 #include "message.h"
 
 #include "stun_wire_gen.h"
-#include "validator.h"
 
 #include <assert.h>
 #include <string.h>
@@ -18,27 +17,11 @@ static constexpr unsigned STUN_METHOD_MID_MASK =
 
 static constexpr size_t STUN_HEADER_SIZE = 20;
 
-// decode the attribute at `offset`, moving past it, or false after the last
-// one
-static bool stun_attribute_read(const_view_t datagram,
-                                size_t *offset,
-                                struct stun_wire_attribute *wire) {
-  assert(offset);
-  assert(wire);
-
-  if (*offset == datagram.size) {
-    return false;
-  }
-
-  // the generated decoder already checked the attributes' framing
-  struct stun_wire_attribute_iter it = {
-      .pos = datagram.data + *offset,
-      .end = datagram.data + datagram.size,
-  };
-  [[maybe_unused]] bool const read = stun_wire_attribute_iter_next(&it, wire);
-  assert(read);
-  *offset = (size_t)(it.pos - datagram.data);
-  return true;
+// all of a message after its header
+static const_view_t stun_message_attribute_bytes(const_view_t datagram) {
+  assert(datagram.size >= STUN_HEADER_SIZE);
+  return (const_view_t){.size = datagram.size - STUN_HEADER_SIZE,
+                        .data = datagram.data + STUN_HEADER_SIZE};
 }
 
 // what lets a result's `header` read a valid one's `message.header`
@@ -63,24 +46,22 @@ stun_message_parse_result_t stun_message_parse(const_view_t datagram) {
   memcpy(header.transaction_id.bytes, wire.transaction_id,
          sizeof(header.transaction_id.bytes));
 
-  auto const invalid =
-      (stun_message_parse_result_t){.status = STUN_MESSAGE_PARSE_INVALID,
-                                    .header = header};
+  // read every attribute only for the reader to check them against its rules,
+  // ending in STUN_ATTRIBUTE_READ_END if the message follows all of them. The
+  // attributes themselves are read again when iterating over the message.
+  auto reader = stun_attribute_reader_init(
+      &header, stun_message_attribute_bytes(datagram));
+  stun_attribute_t attribute;
+  stun_attribute_read_status_t status;
+  do {
+    status = stun_attribute_reader_next(&reader, &attribute);
+  } while (status == STUN_ATTRIBUTE_READ_ATTRIBUTE);
 
-  auto validator = stun_validator_begin(&header);
-  size_t offset = STUN_HEADER_SIZE;
-  struct stun_wire_attribute wire_attribute;
-  while (stun_attribute_read(datagram, &offset, &wire_attribute)) {
-    auto const parsed = stun_attribute_parse(&header, &wire_attribute);
-    if (parsed.status == STUN_ATTRIBUTE_PARSE_INVALID ||
-        !stun_validator_add(&validator, &parsed.attribute,
-                            parsed.status == STUN_ATTRIBUTE_PARSE_KNOWN)) {
-      return invalid;
-    }
-  }
-
-  if (!stun_validator_end(&validator)) {
-    return invalid;
+  if (status == STUN_ATTRIBUTE_READ_INVALID) {
+    return (stun_message_parse_result_t){
+        .status = STUN_MESSAGE_PARSE_INVALID,
+        .header = header,
+    };
   }
 
   return (stun_message_parse_result_t){
@@ -121,9 +102,8 @@ stun_attribute_iterator_t
 stun_message_attributes(stun_message_t const *message) {
   assert(message);
   return (stun_attribute_iterator_t){
-      .header = message->header,
-      .datagram = message->datagram,
-      .offset = STUN_HEADER_SIZE,
+      .reader = stun_attribute_reader_init(
+          &message->header, stun_message_attribute_bytes(message->datagram)),
   };
 }
 
@@ -132,15 +112,10 @@ bool stun_attribute_next(stun_attribute_iterator_t *iterator,
   assert(iterator);
   assert(attribute);
 
-  struct stun_wire_attribute wire;
-  if (!stun_attribute_read(iterator->datagram, &iterator->offset, &wire)) {
-    return false;
-  }
-  auto const parsed = stun_attribute_parse(&iterator->header, &wire);
-  // stun_message_parse already parsed every attribute
-  assert(parsed.status != STUN_ATTRIBUTE_PARSE_INVALID);
-  *attribute = parsed.attribute;
-  return true;
+  auto const status = stun_attribute_reader_next(&iterator->reader, attribute);
+  // stun_message_parse already read the whole message
+  assert(status != STUN_ATTRIBUTE_READ_INVALID);
+  return status == STUN_ATTRIBUTE_READ_ATTRIBUTE;
 }
 
 bool stun_message_find_attribute(stun_message_t const *message,

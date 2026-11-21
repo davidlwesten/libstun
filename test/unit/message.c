@@ -195,11 +195,17 @@ static void test_message_rejects_unknown_required_attributes() {
   uint8_t const lowest[] = {REQUEST(4), 0x00, 0x00, 0, 0};
   TEST_ASSERT_EQUAL(STUN_MESSAGE_PARSE_INVALID,
                     parse(sizeof(lowest), lowest).status);
+  uint8_t const highest[] = {REQUEST(4), 0x7F, 0xFF, 0, 0};
+  TEST_ASSERT_EQUAL(STUN_MESSAGE_PARSE_INVALID,
+                    parse(sizeof(highest), highest).status);
 
-  // the lowest optional type
+  // the lowest and highest optional types
   uint8_t const optional[] = {REQUEST(4), 0x80, 0x00, 0, 0};
   TEST_ASSERT_EQUAL(STUN_MESSAGE_PARSE_VALID,
                     parse(sizeof(optional), optional).status);
+  uint8_t const highest_optional[] = {REQUEST(4), 0xFF, 0xFF, 0, 0};
+  TEST_ASSERT_EQUAL(STUN_MESSAGE_PARSE_VALID,
+                    parse(sizeof(highest_optional), highest_optional).status);
 }
 
 static void test_message_requires_what_its_class_and_method_call_for() {
@@ -217,6 +223,11 @@ static void test_message_requires_what_its_class_and_method_call_for() {
   uint8_t const success[] = {SUCCESS(8), SOFTWARE};
   TEST_ASSERT_EQUAL(STUN_MESSAGE_PARSE_INVALID,
                     parse(sizeof(success), success).status);
+
+  // which another known attribute doesn't stand in for
+  uint8_t const other_known[] = {SUCCESS(20), ERROR_CODE_400};
+  TEST_ASSERT_EQUAL(STUN_MESSAGE_PARSE_INVALID,
+                    parse(sizeof(other_known), other_known).status);
 
   // but not a success response to another method
   uint8_t const other_success[] = {0x01, 0x02, 0, 0, COOKIE, TRANSACTION_ID};
