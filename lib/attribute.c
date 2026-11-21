@@ -88,7 +88,8 @@ static bool stun_attribute_parse_error_code(const_view_t value,
 }
 
 typedef struct stun_attribute_descriptor {
-  stun_attribute_type_t type;
+  /// The type's code on the wire
+  uint16_t code;
   /// Fills in the type's member of the union, or returns false if the value
   /// doesn't parse
   bool (*parse)(const_view_t value,
@@ -96,50 +97,47 @@ typedef struct stun_attribute_descriptor {
                 stun_attribute_t *attribute);
 } stun_attribute_descriptor_t;
 
-// every type in stun_attribute_type_t
-static stun_attribute_descriptor_t const STUN_ATTRIBUTES[] = {
-    {STUN_ATTRIBUTE_ERROR_CODE, stun_attribute_parse_error_code},
-    {STUN_ATTRIBUTE_XOR_MAPPED_ADDRESS,
-     stun_attribute_parse_xor_mapped_address},
+// every type we know, at its value in stun_attribute_type_t
+static stun_attribute_descriptor_t const
+    STUN_ATTRIBUTES[STUN_ATTRIBUTE_TYPE_COUNT] = {
+        [STUN_ATTRIBUTE_ERROR_CODE] = {0x0009, stun_attribute_parse_error_code},
+        [STUN_ATTRIBUTE_XOR_MAPPED_ADDRESS] =
+            {0x0020, stun_attribute_parse_xor_mapped_address},
 };
 
-static constexpr size_t STUN_ATTRIBUTE_COUNT =
-    sizeof(STUN_ATTRIBUTES) / sizeof(STUN_ATTRIBUTES[0]);
-
-// one bit each in stun_attribute_reader_t::seen
-static_assert(STUN_ATTRIBUTE_COUNT <= 32);
-
-// the type's row, or nullptr if we don't know it
-static stun_attribute_descriptor_t const *
-stun_attribute_describe(uint16_t type) {
-  for (size_t i = 0; i < STUN_ATTRIBUTE_COUNT; ++i) {
-    if (STUN_ATTRIBUTES[i].type == type) {
-      return &STUN_ATTRIBUTES[i];
+// the type with that code on the wire
+static stun_attribute_type_t stun_attribute_type_of(uint16_t code) {
+  for (size_t i = STUN_ATTRIBUTE_UNKNOWN + 1; i < STUN_ATTRIBUTE_TYPE_COUNT;
+       ++i) {
+    if (STUN_ATTRIBUTES[i].code == code) {
+      // a type without a row would have code 0 and nothing to parse it
+      assert(STUN_ATTRIBUTES[i].parse);
+      return (stun_attribute_type_t)i;
     }
   }
-  return nullptr;
+  return STUN_ATTRIBUTE_UNKNOWN;
 }
 
-static uint32_t
-stun_attribute_seen_bit(stun_attribute_descriptor_t const *descriptor) {
-  return 1u << (descriptor - STUN_ATTRIBUTES);
+// one bit each in stun_attribute_reader_t::seen
+static_assert(STUN_ATTRIBUTE_TYPE_COUNT <= 32);
+
+static uint32_t stun_attribute_seen_bit(stun_attribute_type_t type) {
+  return 1u << type;
 }
 
-static uint32_t stun_attribute_seen_bit_of(stun_attribute_type_t type) {
-  auto const descriptor = stun_attribute_describe(type);
-  assert(descriptor);
-  return stun_attribute_seen_bit(descriptor);
-}
-
-// what a message of its class and method has to carry
-static uint32_t stun_attribute_required(stun_header_t const *header) {
+// the types a message of its class and method has to carry, as their bits in
+// stun_attribute_reader_t::seen
+static uint32_t stun_attribute_required_by(stun_header_t const *header) {
   switch (header->message_class) {
   case STUN_CLASS_ERROR:
-    return stun_attribute_seen_bit_of(STUN_ATTRIBUTE_ERROR_CODE);
+    return stun_attribute_seen_bit(STUN_ATTRIBUTE_ERROR_CODE);
   case STUN_CLASS_SUCCESS:
-    return header->method == STUN_METHOD_BINDING
-               ? stun_attribute_seen_bit_of(STUN_ATTRIBUTE_XOR_MAPPED_ADDRESS)
-               : 0;
+    switch (header->method) {
+    case STUN_METHOD_BINDING:
+      return stun_attribute_seen_bit(STUN_ATTRIBUTE_XOR_MAPPED_ADDRESS);
+    default:
+      return 0;
+    }
   case STUN_CLASS_REQUEST:
   case STUN_CLASS_INDICATION:
     return 0;
@@ -170,7 +168,7 @@ stun_attribute_reader_next(stun_attribute_reader_t *reader) {
 
   auto const remaining = reader->remaining;
   if (remaining.size == 0) {
-    auto const required = stun_attribute_required(&reader->header);
+    auto const required = stun_attribute_required_by(&reader->header);
     if ((reader->seen & required) != required) {
       return invalid;
     }
@@ -191,17 +189,21 @@ stun_attribute_reader_next(stun_attribute_reader_t *reader) {
   reader->remaining =
       (const_view_t){.size = remaining.size - consumed, .data = it.pos};
 
-  stun_attribute_t parsed = {.type = wire.type};
-  auto const descriptor = stun_attribute_describe(parsed.type);
-  if (descriptor) {
-    const_view_t const value = {.size = wire.value.len, .data = wire.value.ptr};
-    if (!descriptor->parse(value, &reader->header, &parsed)) {
+  auto const type = stun_attribute_type_of(wire.type);
+  stun_attribute_t parsed = {.type = type};
+  if (type == STUN_ATTRIBUTE_UNKNOWN) {
+    if (stun_attribute_is_comprehension_required(wire.type)) {
       return invalid;
     }
 
-    reader->seen |= stun_attribute_seen_bit(descriptor);
-  } else if (stun_attribute_is_comprehension_required(parsed.type)) {
-    return invalid;
+    parsed.unknown.code = wire.type;
+  } else {
+    const_view_t const value = {.size = wire.value.len, .data = wire.value.ptr};
+    if (!STUN_ATTRIBUTES[type].parse(value, &reader->header, &parsed)) {
+      return invalid;
+    }
+
+    reader->seen |= stun_attribute_seen_bit(type);
   }
 
   return (stun_attribute_read_result_t){

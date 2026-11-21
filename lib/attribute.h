@@ -9,22 +9,29 @@
 // Reading a message's attributes (RFC 8489) and giving them their meaning
 
 /**
- * @brief Attribute types
+ * @brief The types of attribute we know
  *
- * Messages can carry types that aren't listed here, and they're passed on as
- * they are.
+ * These aren't the codes on the wire. Attributes of other types come as
+ * STUN_ATTRIBUTE_UNKNOWN, with their code.
  */
-typedef enum stun_attribute_type : uint16_t {
-  STUN_ATTRIBUTE_ERROR_CODE = 0x0009,
-  STUN_ATTRIBUTE_XOR_MAPPED_ADDRESS = 0x0020,
+typedef enum stun_attribute_type {
+  STUN_ATTRIBUTE_UNKNOWN = 0,
+  STUN_ATTRIBUTE_ERROR_CODE,
+  STUN_ATTRIBUTE_XOR_MAPPED_ADDRESS,
+  /// Not a type, but how many there are
+  STUN_ATTRIBUTE_TYPE_COUNT,
 } stun_attribute_type_t;
 
 /**
- * @brief An attribute, parsed if its type is listed in stun_attribute_type_t
+ * @brief An attribute, with its value parsed into the union
  */
 typedef struct stun_attribute {
   stun_attribute_type_t type;
   union {
+    struct {
+      /// The type's code on the wire
+      uint16_t code;
+    } unknown;
     stun_socket_address_t xor_mapped_address;
     /// 300 to 699, without the reason phrase
     uint16_t error_code;

@@ -24,6 +24,11 @@ static stun_attribute_t read_attribute(stun_attribute_reader_t *reader) {
   return read.attribute;
 }
 
+static void expect_unknown(stun_attribute_t attribute, uint16_t code) {
+  TEST_ASSERT_EQUAL(STUN_ATTRIBUTE_UNKNOWN, attribute.type);
+  TEST_ASSERT_EQUAL_HEX16(code, attribute.unknown.code);
+}
+
 // how reading all of `data` ends
 static stun_attribute_read_status_t read_all(stun_class_t message_class,
                                              stun_method_t method,
@@ -47,9 +52,9 @@ static void test_reader_reads_in_order() {
   uint8_t const data[] = {SOFTWARE, XOR_MAPPED_ADDRESS_V4};
   auto it = reader(STUN_CLASS_SUCCESS, STUN_METHOD_BINDING, sizeof(data), data);
 
-  TEST_ASSERT_EQUAL_HEX16(0x8022, read_attribute(&it).type);
-  TEST_ASSERT_EQUAL_HEX16(STUN_ATTRIBUTE_XOR_MAPPED_ADDRESS,
-                          read_attribute(&it).type);
+  expect_unknown(read_attribute(&it), 0x8022);
+  TEST_ASSERT_EQUAL(STUN_ATTRIBUTE_XOR_MAPPED_ADDRESS,
+                    read_attribute(&it).type);
 
   // and keeps ending
   TEST_ASSERT_EQUAL(STUN_ATTRIBUTE_READ_END,
@@ -83,7 +88,7 @@ static void test_reader_rejects_bad_framing() {
   uint8_t const trailing[] = {SOFTWARE, 0x80};
   auto it = reader(STUN_CLASS_REQUEST, STUN_METHOD_BINDING, sizeof(trailing),
                    trailing);
-  TEST_ASSERT_EQUAL_HEX16(0x8022, read_attribute(&it).type);
+  expect_unknown(read_attribute(&it), 0x8022);
   TEST_ASSERT_EQUAL(STUN_ATTRIBUTE_READ_INVALID,
                     stun_attribute_reader_next(&it).status);
 }
@@ -97,12 +102,12 @@ static void test_reader_unknown_types() {
   TEST_ASSERT_EQUAL(STUN_ATTRIBUTE_READ_INVALID,
                     read_request(sizeof(highest), highest));
 
-  // the lowest and highest optional ones come with only their type
+  // the lowest and highest optional ones come with only their code
   uint8_t const optional[] = {0x80, 0x00, 0, 0, 0xFF, 0xFF, 0, 0};
   auto it = reader(STUN_CLASS_REQUEST, STUN_METHOD_BINDING, sizeof(optional),
                    optional);
-  TEST_ASSERT_EQUAL_HEX16(0x8000, read_attribute(&it).type);
-  TEST_ASSERT_EQUAL_HEX16(0xFFFF, read_attribute(&it).type);
+  expect_unknown(read_attribute(&it), 0x8000);
+  expect_unknown(read_attribute(&it), 0xFFFF);
   TEST_ASSERT_EQUAL(STUN_ATTRIBUTE_READ_END,
                     stun_attribute_reader_next(&it).status);
 }
@@ -125,7 +130,7 @@ static void test_reader_requires_what_class_and_method_call_for() {
   // attribute
   auto it = reader(STUN_CLASS_SUCCESS, STUN_METHOD_BINDING, sizeof(software),
                    software);
-  TEST_ASSERT_EQUAL_HEX16(0x8022, read_attribute(&it).type);
+  expect_unknown(read_attribute(&it), 0x8022);
   TEST_ASSERT_EQUAL(STUN_ATTRIBUTE_READ_INVALID,
                     stun_attribute_reader_next(&it).status);
 
