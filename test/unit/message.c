@@ -120,7 +120,7 @@ static void test_message_attributes() {
   auto next = stun_attribute_next(&it);
   TEST_ASSERT_TRUE(next.has_value);
   TEST_ASSERT_EQUAL(STUN_ATTRIBUTE_UNKNOWN, next.value.type);
-  TEST_ASSERT_EQUAL_HEX16(0x8022, next.value.unknown.code);
+  TEST_ASSERT_EQUAL_HEX16(0x8022, next.value.unknown.wire_type);
 
   next = stun_attribute_next(&it);
   TEST_ASSERT_TRUE(next.has_value);

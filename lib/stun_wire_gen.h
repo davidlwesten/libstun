@@ -19,6 +19,12 @@ typedef enum {
 /* Constants from stun.pkt. */
 constexpr uint32_t STUN_WIRE_MAGIC_COOKIE = 0x2112A442;
 
+/* enum AttributeType : u16 */
+enum stun_wire_attribute_type : uint16_t {
+    STUN_WIRE_ATTRIBUTE_TYPE_ERROR_CODE         = 9,
+    STUN_WIRE_ATTRIBUTE_TYPE_XOR_MAPPED_ADDRESS = 32,
+};
+
 /* enum Family : u8 */
 enum stun_wire_family : uint8_t {
     STUN_WIRE_FAMILY_IPV4 = 1,

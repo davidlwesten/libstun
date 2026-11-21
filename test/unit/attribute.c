@@ -24,9 +24,9 @@ static stun_attribute_t read_attribute(stun_attribute_reader_t *reader) {
   return read.attribute;
 }
 
-static void expect_unknown(stun_attribute_t attribute, uint16_t code) {
+static void expect_unknown(stun_attribute_t attribute, uint16_t wire_type) {
   TEST_ASSERT_EQUAL(STUN_ATTRIBUTE_UNKNOWN, attribute.type);
-  TEST_ASSERT_EQUAL_HEX16(code, attribute.unknown.code);
+  TEST_ASSERT_EQUAL_HEX16(wire_type, attribute.unknown.wire_type);
 }
 
 // how reading all of `data` ends
@@ -102,7 +102,7 @@ static void test_reader_unknown_types() {
   TEST_ASSERT_EQUAL(STUN_ATTRIBUTE_READ_INVALID,
                     read_request(sizeof(highest), highest));
 
-  // the lowest and highest optional ones come with only their code
+  // the lowest and highest optional ones come with only their wire type
   uint8_t const optional[] = {0x80, 0x00, 0, 0, 0xFF, 0xFF, 0, 0};
   auto it = reader(STUN_CLASS_REQUEST, STUN_METHOD_BINDING, sizeof(optional),
                    optional);

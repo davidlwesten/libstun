@@ -11,8 +11,8 @@
 /**
  * @brief The types of attribute we know
  *
- * These aren't the codes on the wire. Attributes of other types come as
- * STUN_ATTRIBUTE_UNKNOWN, with their code.
+ * These aren't the types on the wire. Attributes of other types come as
+ * STUN_ATTRIBUTE_UNKNOWN, with their wire type.
  */
 typedef enum stun_attribute_type {
   STUN_ATTRIBUTE_UNKNOWN = 0,
@@ -29,8 +29,7 @@ typedef struct stun_attribute {
   stun_attribute_type_t type;
   union {
     struct {
-      /// The type's code on the wire
-      uint16_t code;
+      uint16_t wire_type;
     } unknown;
     stun_socket_address_t xor_mapped_address;
     /// 300 to 699, without the reason phrase

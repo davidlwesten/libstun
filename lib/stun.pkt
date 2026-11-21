@@ -29,6 +29,12 @@ struct Attribute {
   value: u8[length] pad 4;
 }
 
+// The attribute types we know, as Attribute's type
+enum AttributeType : u16 {
+  ERROR_CODE = 0x0009,
+  XOR_MAPPED_ADDRESS = 0x0020,
+}
+
 enum Family : u8 {
   IPV4 = 0x01,
   IPV6 = 0x02,

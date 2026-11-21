@@ -7,8 +7,6 @@
 #include <assert.h>
 
 typedef struct stun_attribute_descriptor {
-  /// The type's code on the wire
-  uint16_t code;
   /// The attribute of this type that `value` holds, or
   /// STUN_ATTRIBUTE_READ_INVALID if it doesn't parse
   stun_attribute_read_result_t (*parse)(const_view_t value,
@@ -20,27 +18,24 @@ static stun_attribute_descriptor_t const
     STUN_ATTRIBUTES[STUN_ATTRIBUTE_TYPE_COUNT] = {
         [STUN_ATTRIBUTE_ERROR_CODE] =
             {
-                0x0009,
                 stun_attribute_parse_error_code,
             },
         [STUN_ATTRIBUTE_XOR_MAPPED_ADDRESS] =
             {
-                0x0020,
                 stun_attribute_parse_xor_mapped_address,
             },
 };
 
-// the type with that code on the wire
-static stun_attribute_type_t stun_attribute_type_of(uint16_t code) {
-  for (size_t i = STUN_ATTRIBUTE_UNKNOWN + 1; i < STUN_ATTRIBUTE_TYPE_COUNT;
-       ++i) {
-    if (STUN_ATTRIBUTES[i].code == code) {
-      // a type without a row would have code 0 and nothing to parse it
-      assert(STUN_ATTRIBUTES[i].parse);
-      return (stun_attribute_type_t)i;
-    }
+// which of our types a type on the wire is
+static stun_attribute_type_t stun_attribute_type_of(uint16_t wire_type) {
+  switch (wire_type) {
+  case STUN_WIRE_ATTRIBUTE_TYPE_ERROR_CODE:
+    return STUN_ATTRIBUTE_ERROR_CODE;
+  case STUN_WIRE_ATTRIBUTE_TYPE_XOR_MAPPED_ADDRESS:
+    return STUN_ATTRIBUTE_XOR_MAPPED_ADDRESS;
+  default:
+    return STUN_ATTRIBUTE_UNKNOWN;
   }
-  return STUN_ATTRIBUTE_UNKNOWN;
 }
 
 // one bit each in stun_attribute_reader_t::seen
@@ -73,8 +68,8 @@ static uint32_t stun_attribute_required_by(stun_header_t const *header) {
 // types from here up are comprehension-optional
 static constexpr uint16_t STUN_ATTRIBUTE_COMPREHENSION_OPTIONAL = 0x8000;
 
-static bool stun_attribute_is_comprehension_required(uint16_t type) {
-  return type < STUN_ATTRIBUTE_COMPREHENSION_OPTIONAL;
+static bool stun_attribute_is_comprehension_required(uint16_t wire_type) {
+  return wire_type < STUN_ATTRIBUTE_COMPREHENSION_OPTIONAL;
 }
 
 stun_attribute_reader_t stun_attribute_reader_init(stun_header_t const *header,
@@ -119,11 +114,13 @@ stun_attribute_reader_next(stun_attribute_reader_t *reader) {
 
     return (stun_attribute_read_result_t){
         .status = STUN_ATTRIBUTE_READ_ATTRIBUTE,
-        .attribute = {.type = type, .unknown = {.code = wire.type}},
+        .attribute = {.type = type, .unknown = {.wire_type = wire.type}},
     };
   }
 
   const_view_t const value = {.size = wire.value.len, .data = wire.value.ptr};
+  // a type without a row would have nothing to parse it
+  assert(STUN_ATTRIBUTES[type].parse);
   auto const result = STUN_ATTRIBUTES[type].parse(value, &reader->header);
   if (result.status == STUN_ATTRIBUTE_READ_ATTRIBUTE) {
     assert(result.attribute.type == type);
