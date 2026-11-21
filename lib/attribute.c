@@ -7,11 +7,22 @@
 #include <string.h>
 
 static constexpr size_t STUN_MAGIC_COOKIE_SIZE = sizeof(uint32_t);
+static constexpr size_t STUN_IPV4_SIZE = 4;
+static constexpr size_t STUN_IPV6_SIZE = 16;
+
+// what XOR-MAPPED-ADDRESS's address is XORed with: the magic cookie, then the
+// transaction ID, which only an IPv6 address is long enough to reach
+static constexpr size_t STUN_XOR_KEY_SIZE =
+    STUN_MAGIC_COOKIE_SIZE + STUN_TRANSACTION_ID_SIZE;
+static_assert(STUN_XOR_KEY_SIZE == STUN_IPV6_SIZE);
 
 // ::ffff:0:0/96, followed by the IPv4 address
 static constexpr uint8_t STUN_IPV4_MAPPED_PREFIX[12] = {
     0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0xFF, 0xFF,
 };
+static_assert(sizeof(STUN_IPV4_MAPPED_PREFIX) + STUN_IPV4_SIZE ==
+              STUN_IPV6_SIZE);
+static_assert(sizeof((stun_ip_address_t){}.addr) == STUN_IPV6_SIZE);
 
 // error codes are class * 100 + number
 static constexpr uint8_t STUN_ERROR_CODE_CLASS_MIN = 3;
@@ -30,48 +41,59 @@ static constexpr stun_attribute_read_result_t STUN_INVALID_READ_RESULT = {
     .status = STUN_ATTRIBUTE_READ_INVALID,
 };
 
+static void stun_xor_key(stun_transaction_id_t const *transaction_id,
+                         uint8_t key[static STUN_XOR_KEY_SIZE]) {
+  stun_store_be32(key, STUN_WIRE_MAGIC_COOKIE);
+  memcpy(key + STUN_MAGIC_COOKIE_SIZE, transaction_id->bytes,
+         STUN_TRANSACTION_ID_SIZE);
+}
+
+static void
+stun_xor(size_t size, uint8_t out[], uint8_t const in[], uint8_t const key[]) {
+  for (size_t i = 0; i < size; ++i) {
+    out[i] = in[i] ^ key[i];
+  }
+}
+
 static stun_attribute_read_result_t
 stun_attribute_parse_xor_mapped_address(const_view_t value,
                                         stun_header_t const *header) {
-  struct stun_wire_xor_mapped_address address;
-  if (stun_wire_xor_mapped_address_decode(&address, value.data, value.size) !=
+  struct stun_wire_xor_mapped_address wire;
+  if (stun_wire_xor_mapped_address_decode(&wire, value.data, value.size) !=
       STUN_WIRE_OK) {
     return STUN_INVALID_READ_RESULT;
   }
 
-  // the cookie, then the transaction ID for the rest of an IPv6 address
-  auto const id = &header->transaction_id;
-  uint8_t key[STUN_MAGIC_COOKIE_SIZE + sizeof(id->bytes)];
-  stun_store_be32(key, STUN_WIRE_MAGIC_COOKIE);
-  memcpy(key + STUN_MAGIC_COOKIE_SIZE, id->bytes, sizeof(id->bytes));
+  uint8_t key[STUN_XOR_KEY_SIZE];
+  stun_xor_key(&header->transaction_id, key);
 
-  stun_attribute_read_result_t result = {
-      .status = STUN_ATTRIBUTE_READ_ATTRIBUTE,
-      .attribute = {.type = STUN_ATTRIBUTE_XOR_MAPPED_ADDRESS},
+  // the port is XORed with the cookie's first half
+  stun_socket_address_t address = {
+      .port = wire.port ^ (uint16_t)(STUN_WIRE_MAGIC_COOKIE >> 16),
   };
-  auto const out = &result.attribute.xor_mapped_address;
-  static_assert(sizeof(key) == sizeof(out->ip.addr));
-  out->port = address.port ^ (uint16_t)(STUN_WIRE_MAGIC_COOKIE >> 16);
-  switch (address.family) {
+
+  switch (wire.family) {
   case STUN_WIRE_FAMILY_IPV4:
-    static_assert(sizeof(STUN_IPV4_MAPPED_PREFIX) +
-                      sizeof(address.address.ipv4.addr) ==
-                  sizeof(out->ip.addr));
-    memcpy(out->ip.addr, STUN_IPV4_MAPPED_PREFIX,
+    memcpy(address.ip.addr, STUN_IPV4_MAPPED_PREFIX,
            sizeof(STUN_IPV4_MAPPED_PREFIX));
-    for (size_t i = 0; i < sizeof(address.address.ipv4.addr); ++i) {
-      out->ip.addr[sizeof(STUN_IPV4_MAPPED_PREFIX) + i] =
-          address.address.ipv4.addr[i] ^ key[i];
-    }
-    return result;
+    stun_xor(STUN_IPV4_SIZE, address.ip.addr + sizeof(STUN_IPV4_MAPPED_PREFIX),
+             wire.address.ipv4.addr, key);
+    break;
   case STUN_WIRE_FAMILY_IPV6:
-    for (size_t i = 0; i < sizeof(address.address.ipv6.addr); ++i) {
-      out->ip.addr[i] = address.address.ipv6.addr[i] ^ key[i];
-    }
-    return result;
+    stun_xor(STUN_IPV6_SIZE, address.ip.addr, wire.address.ipv6.addr, key);
+    break;
   default:
     return STUN_INVALID_READ_RESULT;
   }
+
+  return (stun_attribute_read_result_t){
+      .status = STUN_ATTRIBUTE_READ_ATTRIBUTE,
+      .attribute =
+          {
+              .type = STUN_ATTRIBUTE_XOR_MAPPED_ADDRESS,
+              .xor_mapped_address = address,
+          },
+  };
 }
 
 static stun_attribute_read_result_t
@@ -218,11 +240,11 @@ stun_attribute_reader_next(stun_attribute_reader_t *reader) {
   }
 
   const_view_t const value = {.size = wire.value.len, .data = wire.value.ptr};
-  auto const read = STUN_ATTRIBUTES[type].parse(value, &reader->header);
-  if (read.status == STUN_ATTRIBUTE_READ_ATTRIBUTE) {
-    assert(read.attribute.type == type);
+  auto const result = STUN_ATTRIBUTES[type].parse(value, &reader->header);
+  if (result.status == STUN_ATTRIBUTE_READ_ATTRIBUTE) {
+    assert(result.attribute.type == type);
     reader->seen |= stun_attribute_seen_bit(type);
   }
 
-  return read;
+  return result;
 }
