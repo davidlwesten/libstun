@@ -25,36 +25,24 @@ static void stun_store_be32(uint8_t out[static 4], uint32_t value) {
   out[3] = (uint8_t)value;
 }
 
-typedef enum stun_attribute_parse_status {
-  /// Of a type we know, but the value doesn't parse
-  STUN_ATTRIBUTE_PARSE_INVALID = 0,
-  STUN_ATTRIBUTE_PARSE_UNKNOWN,
-  /// Of a type we know, with its value in the union
-  STUN_ATTRIBUTE_PARSE_KNOWN,
-} stun_attribute_parse_status_t;
-
-typedef struct stun_attribute_parse_result {
-  stun_attribute_parse_status_t status;
-  /// Its type whatever the status, and the union if it's KNOWN
-  stun_attribute_t attribute;
-} stun_attribute_parse_result_t;
-
-static stun_attribute_parse_status_t
+static bool
 stun_attribute_parse_xor_mapped_address(const_view_t value,
-                                        stun_transaction_id_t const *id,
-                                        stun_socket_address_t *out) {
+                                        stun_header_t const *header,
+                                        stun_attribute_t *attribute) {
   struct stun_wire_xor_mapped_address address;
   if (stun_wire_xor_mapped_address_decode(&address, value.data, value.size) !=
       STUN_WIRE_OK) {
-    return STUN_ATTRIBUTE_PARSE_INVALID;
+    return false;
   }
 
   // the cookie, then the transaction ID for the rest of an IPv6 address
+  auto const id = &header->transaction_id;
   uint8_t key[STUN_MAGIC_COOKIE_SIZE + sizeof(id->bytes)];
   stun_store_be32(key, STUN_WIRE_MAGIC_COOKIE);
   memcpy(key + STUN_MAGIC_COOKIE_SIZE, id->bytes, sizeof(id->bytes));
-  static_assert(sizeof(key) == sizeof(out->ip.addr));
 
+  auto const out = &attribute->xor_mapped_address;
+  static_assert(sizeof(key) == sizeof(out->ip.addr));
   out->port = address.port ^ (uint16_t)(STUN_WIRE_MAGIC_COOKIE >> 16);
   switch (address.family) {
   case STUN_WIRE_FAMILY_IPV4:
@@ -67,81 +55,91 @@ stun_attribute_parse_xor_mapped_address(const_view_t value,
       out->ip.addr[sizeof(STUN_IPV4_MAPPED_PREFIX) + i] =
           address.address.ipv4.addr[i] ^ key[i];
     }
-    return STUN_ATTRIBUTE_PARSE_KNOWN;
+    return true;
   case STUN_WIRE_FAMILY_IPV6:
     for (size_t i = 0; i < sizeof(address.address.ipv6.addr); ++i) {
       out->ip.addr[i] = address.address.ipv6.addr[i] ^ key[i];
     }
-    return STUN_ATTRIBUTE_PARSE_KNOWN;
+    return true;
   default:
-    return STUN_ATTRIBUTE_PARSE_INVALID;
+    return false;
   }
 }
 
-static stun_attribute_parse_status_t
-stun_attribute_parse_error_code(const_view_t value, uint16_t *out) {
+static bool stun_attribute_parse_error_code(const_view_t value,
+                                            stun_header_t const *,
+                                            stun_attribute_t *attribute) {
   struct stun_wire_error_code error;
   if (stun_wire_error_code_decode(&error, value.data, value.size) !=
       STUN_WIRE_OK) {
-    return STUN_ATTRIBUTE_PARSE_INVALID;
+    return false;
   }
 
   if (error.class < STUN_ERROR_CODE_CLASS_MIN ||
       error.class > STUN_ERROR_CODE_CLASS_MAX ||
       error.number >= STUN_ERROR_CODE_NUMBERS_PER_CLASS) {
-    return STUN_ATTRIBUTE_PARSE_INVALID;
+    return false;
   }
 
-  *out = (uint16_t)(error.class * STUN_ERROR_CODE_NUMBERS_PER_CLASS +
-                    error.number);
-  return STUN_ATTRIBUTE_PARSE_KNOWN;
+  attribute->error_code =
+      (uint16_t)(error.class * STUN_ERROR_CODE_NUMBERS_PER_CLASS +
+                 error.number);
+  return true;
 }
 
-static stun_attribute_parse_result_t
-stun_attribute_parse(stun_header_t const *header,
-                     struct stun_wire_attribute const *wire) {
-  stun_attribute_parse_result_t result = {.attribute = {.type = wire->type}};
-  auto const attribute = &result.attribute;
-  const_view_t const value = {.size = wire->value.len, .data = wire->value.ptr};
-  switch (attribute->type) {
-  case STUN_ATTRIBUTE_ERROR_CODE:
-    result.status =
-        stun_attribute_parse_error_code(value, &attribute->error_code);
-    break;
-  case STUN_ATTRIBUTE_XOR_MAPPED_ADDRESS:
-    result.status = stun_attribute_parse_xor_mapped_address(
-        value, &header->transaction_id, &attribute->xor_mapped_address);
-    break;
-  default:
-    result.status = STUN_ATTRIBUTE_PARSE_UNKNOWN;
-    break;
-  }
-  return result;
-}
+typedef struct stun_attribute_descriptor {
+  stun_attribute_type_t type;
+  /// Fills in the type's member of the union, or returns false if the value
+  /// doesn't parse
+  bool (*parse)(const_view_t value,
+                stun_header_t const *header,
+                stun_attribute_t *attribute);
+} stun_attribute_descriptor_t;
 
-enum {
-  STUN_SEEN_ERROR_CODE = 1u << 0,
-  STUN_SEEN_XOR_MAPPED_ADDRESS = 1u << 1,
+// every type in stun_attribute_type_t
+static stun_attribute_descriptor_t const STUN_ATTRIBUTES[] = {
+    {STUN_ATTRIBUTE_ERROR_CODE, stun_attribute_parse_error_code},
+    {STUN_ATTRIBUTE_XOR_MAPPED_ADDRESS,
+     stun_attribute_parse_xor_mapped_address},
 };
 
-static uint32_t stun_attribute_seen_bit(stun_attribute_type_t type) {
-  switch (type) {
-  case STUN_ATTRIBUTE_ERROR_CODE:
-    return STUN_SEEN_ERROR_CODE;
-  case STUN_ATTRIBUTE_XOR_MAPPED_ADDRESS:
-    return STUN_SEEN_XOR_MAPPED_ADDRESS;
+static constexpr size_t STUN_ATTRIBUTE_COUNT =
+    sizeof(STUN_ATTRIBUTES) / sizeof(STUN_ATTRIBUTES[0]);
+
+// one bit each in stun_attribute_reader_t::seen
+static_assert(STUN_ATTRIBUTE_COUNT <= 32);
+
+// the type's row, or nullptr if we don't know it
+static stun_attribute_descriptor_t const *
+stun_attribute_describe(uint16_t type) {
+  for (size_t i = 0; i < STUN_ATTRIBUTE_COUNT; ++i) {
+    if (STUN_ATTRIBUTES[i].type == type) {
+      return &STUN_ATTRIBUTES[i];
+    }
   }
-  return 0;
+  return nullptr;
+}
+
+static uint32_t
+stun_attribute_seen_bit(stun_attribute_descriptor_t const *descriptor) {
+  return 1u << (descriptor - STUN_ATTRIBUTES);
+}
+
+static uint32_t stun_attribute_seen_bit_of(stun_attribute_type_t type) {
+  auto const descriptor = stun_attribute_describe(type);
+  assert(descriptor);
+  return stun_attribute_seen_bit(descriptor);
 }
 
 // what a message of its class and method has to carry
 static uint32_t stun_attribute_required(stun_header_t const *header) {
   switch (header->message_class) {
   case STUN_CLASS_ERROR:
-    return STUN_SEEN_ERROR_CODE;
+    return stun_attribute_seen_bit_of(STUN_ATTRIBUTE_ERROR_CODE);
   case STUN_CLASS_SUCCESS:
-    return header->method == STUN_METHOD_BINDING ? STUN_SEEN_XOR_MAPPED_ADDRESS
-                                                 : 0;
+    return header->method == STUN_METHOD_BINDING
+               ? stun_attribute_seen_bit_of(STUN_ATTRIBUTE_XOR_MAPPED_ADDRESS)
+               : 0;
   case STUN_CLASS_REQUEST:
   case STUN_CLASS_INDICATION:
     return 0;
@@ -189,20 +187,19 @@ stun_attribute_reader_next(stun_attribute_reader_t *reader,
   reader->remaining =
       (const_view_t){.size = remaining.size - consumed, .data = it.pos};
 
-  auto const parsed = stun_attribute_parse(&reader->header, &wire);
-  switch (parsed.status) {
-  case STUN_ATTRIBUTE_PARSE_INVALID:
-    return STUN_ATTRIBUTE_READ_INVALID;
-  case STUN_ATTRIBUTE_PARSE_UNKNOWN:
-    if (stun_attribute_is_comprehension_required(parsed.attribute.type)) {
+  stun_attribute_t parsed = {.type = wire.type};
+  auto const descriptor = stun_attribute_describe(parsed.type);
+  if (descriptor) {
+    const_view_t const value = {.size = wire.value.len, .data = wire.value.ptr};
+    if (!descriptor->parse(value, &reader->header, &parsed)) {
       return STUN_ATTRIBUTE_READ_INVALID;
     }
-    break;
-  case STUN_ATTRIBUTE_PARSE_KNOWN:
-    reader->seen |= stun_attribute_seen_bit(parsed.attribute.type);
-    break;
+
+    reader->seen |= stun_attribute_seen_bit(descriptor);
+  } else if (stun_attribute_is_comprehension_required(parsed.type)) {
+    return STUN_ATTRIBUTE_READ_INVALID;
   }
 
-  *attribute = parsed.attribute;
+  *attribute = parsed;
   return STUN_ATTRIBUTE_READ_ATTRIBUTE;
 }
