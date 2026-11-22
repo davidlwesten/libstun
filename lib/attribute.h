@@ -49,7 +49,7 @@ typedef struct stun_optional_attribute {
  * Parses each one, and checks the message against the rules for its
  * attributes as it goes: no attribute may fail to decode or parse, none of the
  * comprehension-required ones may be of a type we don't know, and the message
- * has to carry what its class and method call for (an error response an
+ * has to carry what its class and method call for (e.g. an error response an
  * ERROR-CODE, a Binding success response an XOR-MAPPED-ADDRESS).
  *
  * This is how stun_message_parse checks a message. To read the attributes of
@@ -58,8 +58,10 @@ typedef struct stun_optional_attribute {
 typedef struct stun_attribute_reader {
   /// The message's, which parsing its attributes needs
   stun_header_t header;
-  /// The attributes not read yet
-  const_view_t remaining;
+  /// All of it, header included
+  const_view_t message;
+  /// Where the next attribute starts in `message`
+  size_t offset;
   /// The known types read so far, one bit each
   uint32_t seen;
 } stun_attribute_reader_t;
@@ -83,11 +85,11 @@ typedef struct stun_attribute_read_result {
 /**
  * @brief Start reading a message's attributes
  *
- * @param[in] header     The message's header
- * @param[in] attributes All of the message after its header
+ * @param[in] header  The message's header
+ * @param[in] message All of it, header included
  */
 stun_attribute_reader_t stun_attribute_reader_init(stun_header_t const *header,
-                                                   const_view_t attributes);
+                                                   const_view_t message);
 
 /**
  * @brief Read the next attribute

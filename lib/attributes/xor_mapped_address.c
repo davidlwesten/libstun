@@ -45,16 +45,16 @@ static void xor_bytes(size_t size,
 }
 
 stun_attribute_read_result_t
-stun_attribute_parse_xor_mapped_address(const_view_t value,
-                                        stun_header_t const *header) {
+stun_attribute_parse_xor_mapped_address(stun_wire_attribute_t const *attribute,
+                                        stun_attribute_reader_t const *reader) {
   struct stun_wire_xor_mapped_address wire;
-  if (stun_wire_xor_mapped_address_decode(&wire, value.data, value.size) !=
-      STUN_WIRE_OK) {
+  if (stun_wire_xor_mapped_address_decode(
+          &wire, attribute->value.ptr, attribute->value.len) != STUN_WIRE_OK) {
     return STUN_INVALID_READ_RESULT;
   }
 
   uint8_t key[XOR_KEY_SIZE];
-  fill_xor_key(&header->transaction_id, key);
+  fill_xor_key(&reader->header.transaction_id, key);
 
   // the port is XORed with the cookie's first half
   stun_socket_address_t address = {

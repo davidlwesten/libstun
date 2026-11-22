@@ -6,11 +6,13 @@
 
 #include <assert.h>
 
+// what `attribute` means, or STUN_ATTRIBUTE_READ_INVALID if it doesn't parse
+typedef stun_attribute_read_result_t
+parser_t(stun_wire_attribute_t const *attribute,
+         stun_attribute_reader_t const *reader);
+
 typedef struct descriptor {
-  /// The attribute of this type that `value` holds, or
-  /// STUN_ATTRIBUTE_READ_INVALID if it doesn't parse
-  stun_attribute_read_result_t (*parse)(const_view_t value,
-                                        stun_header_t const *header);
+  parser_t *parse;
 } descriptor_t;
 
 // every type we know, at its value in stun_attribute_type_t
@@ -70,18 +72,26 @@ static bool is_comprehension_required(uint16_t wire_type) {
 }
 
 stun_attribute_reader_t stun_attribute_reader_init(stun_header_t const *header,
-                                                   const_view_t attributes) {
+                                                   const_view_t message) {
   assert(header);
-  assert(attributes.data);
-  return (stun_attribute_reader_t){.header = *header, .remaining = attributes};
+  assert(message.data);
+  assert(message.size >= STUN_HEADER_SIZE);
+  return (stun_attribute_reader_t){
+      .header = *header,
+      .message = message,
+      .offset = STUN_HEADER_SIZE,
+  };
 }
 
 stun_attribute_read_result_t
 stun_attribute_reader_next(stun_attribute_reader_t *reader) {
   assert(reader);
 
-  auto const remaining = reader->remaining;
-  if (remaining.size == 0) {
+  auto const message = reader->message;
+  assert(reader->offset <= message.size);
+
+  // check if we've read all attributes and have seen all the required ones
+  if (reader->offset == message.size) {
     auto const required = required_by(&reader->header);
     if ((reader->seen & required) != required) {
       return STUN_INVALID_READ_RESULT;
@@ -90,38 +100,46 @@ stun_attribute_reader_next(stun_attribute_reader_t *reader) {
     return (stun_attribute_read_result_t){.status = STUN_ATTRIBUTE_READ_END};
   }
 
-  struct stun_wire_attribute_iter it = {.pos = remaining.data,
-                                        .end = remaining.data + remaining.size};
-  struct stun_wire_attribute wire;
+  // frame the attribute at `offset`: its type and length come first, and the
+  // length says where its value ends and, with the padding, where the next
+  // attribute starts. This only fails if it runs past the end.
+  struct stun_wire_attribute_iter it = {.pos = message.data + reader->offset,
+                                        .end = message.data + message.size};
+  stun_wire_attribute_t wire;
   if (!stun_wire_attribute_iter_next(&it, &wire)) {
     return STUN_INVALID_READ_RESULT;
   }
 
-  reader->remaining =
-      (const_view_t){.size = (size_t)(it.end - it.pos), .data = it.pos};
+  // where the next attribute starts. `offset` moves there only once this one
+  // has been read, so a parser sees `offset` at its own attribute.
+  auto const next = (size_t)(it.pos - message.data);
 
+  // there's nothing to parse a type we don't know with. Only optional ones
+  // can be skipped, and they're passed on with just their wire type.
   auto const type = type_from_wire(wire.type);
   if (type == STUN_ATTRIBUTE_UNKNOWN) {
-    return is_comprehension_required(wire.type)
-               ? STUN_INVALID_READ_RESULT
-               : (stun_attribute_read_result_t){
-                     .status = STUN_ATTRIBUTE_READ_ATTRIBUTE,
-                     .attribute =
-                         {
-                             .type = type,
-                             .unknown = {.wire_type = wire.type},
-                         },
-                 };
+    if (is_comprehension_required(wire.type)) {
+      return STUN_INVALID_READ_RESULT;
+    }
+
+    reader->offset = next;
+    return (stun_attribute_read_result_t){
+        .status = STUN_ATTRIBUTE_READ_ATTRIBUTE,
+        .attribute =
+            {
+                .type = type,
+                .unknown = {.wire_type = wire.type},
+            },
+    };
   }
 
-  const_view_t const value = {.size = wire.value.len, .data = wire.value.ptr};
-  // a type without a row would have nothing to parse it
-  assert(DESCRIPTORS[type].parse);
-  auto const result = DESCRIPTORS[type].parse(value, &reader->header);
-  if (result.status == STUN_ATTRIBUTE_READ_ATTRIBUTE) {
-    assert(result.attribute.type == type);
-    reader->seen |= seen_bit(type);
+  auto const result = DESCRIPTORS[type].parse(&wire, reader);
+  if (result.status != STUN_ATTRIBUTE_READ_ATTRIBUTE) {
+    return result;
   }
 
+  reader->offset = next;
+  // recorded for the checks after the last attribute
+  reader->seen |= seen_bit(type);
   return result;
 }

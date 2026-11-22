@@ -8,10 +8,11 @@ static constexpr uint8_t CLASS_MAX = 6;
 static constexpr uint8_t NUMBERS_PER_CLASS = 100;
 
 stun_attribute_read_result_t
-stun_attribute_parse_error_code(const_view_t value, stun_header_t const *) {
+stun_attribute_parse_error_code(stun_wire_attribute_t const *attribute,
+                                stun_attribute_reader_t const *) {
   struct stun_wire_error_code error;
-  if (stun_wire_error_code_decode(&error, value.data, value.size) !=
-      STUN_WIRE_OK) {
+  if (stun_wire_error_code_decode(&error, attribute->value.ptr,
+                                  attribute->value.len) != STUN_WIRE_OK) {
     return STUN_INVALID_READ_RESULT;
   }
 

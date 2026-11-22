@@ -5,6 +5,7 @@
 
 // What every STUN message (RFC 8489) starts with, as plain data
 
+static constexpr size_t STUN_HEADER_SIZE = 20;
 static constexpr size_t STUN_TRANSACTION_ID_SIZE = 12;
 
 typedef struct stun_transaction_id {

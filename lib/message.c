@@ -14,15 +14,6 @@ static constexpr unsigned METHOD_LOW_MASK = (1u << METHOD_MID_SHIFT) - 1;
 static constexpr unsigned METHOD_MID_MASK =
     (1u << (METHOD_HIGH_SHIFT - METHOD_MID_SHIFT)) - 1;
 
-static constexpr size_t HEADER_SIZE = 20;
-
-// all of a message after its header
-static const_view_t attribute_bytes(const_view_t datagram) {
-  assert(datagram.size >= HEADER_SIZE);
-  return (const_view_t){.size = datagram.size - HEADER_SIZE,
-                        .data = datagram.data + HEADER_SIZE};
-}
-
 // what lets a result's `header` read a valid one's `message.header`
 static_assert(offsetof(stun_message_t, header) == 0);
 
@@ -48,7 +39,7 @@ stun_message_parse_result_t stun_message_parse(const_view_t datagram) {
   // read every attribute only for the reader to check them against its rules,
   // ending in STUN_ATTRIBUTE_READ_END if the message follows all of them. The
   // attributes themselves are read again when iterating over the message.
-  auto reader = stun_attribute_reader_init(&header, attribute_bytes(datagram));
+  auto reader = stun_attribute_reader_init(&header, datagram);
   stun_attribute_read_result_t read;
   do {
     read = stun_attribute_reader_next(&reader);
@@ -98,8 +89,7 @@ stun_attribute_iterator_t
 stun_message_attributes(stun_message_t const *message) {
   assert(message);
   return (stun_attribute_iterator_t){
-      .reader = stun_attribute_reader_init(&message->header,
-                                           attribute_bytes(message->datagram)),
+      .reader = stun_attribute_reader_init(&message->header, message->datagram),
   };
 }
 

@@ -4,17 +4,29 @@
 #include "runner.h"
 #include "samples.h"
 
+#include <string.h>
+
+// what the last reader made reads: a header, left zeroed since the reader
+// takes it from stun_header_t instead, then the attributes
+static uint8_t message[256];
+
+// a reader for the attributes in `data`, valid until the next call
 static stun_attribute_reader_t reader(stun_class_t message_class,
                                       stun_method_t method,
                                       size_t size,
                                       uint8_t const data[]) {
+  TEST_ASSERT_LESS_OR_EQUAL(sizeof(message) - STUN_HEADER_SIZE, size);
+  memset(message, 0, STUN_HEADER_SIZE);
+  memcpy(message + STUN_HEADER_SIZE, data, size);
+
   stun_header_t const header = {
       .message_class = message_class,
       .method = method,
       .transaction_id = {{TRANSACTION_ID}},
   };
-  return stun_attribute_reader_init(&header,
-                                    (const_view_t){.size = size, .data = data});
+  return stun_attribute_reader_init(
+      &header,
+      (const_view_t){.size = STUN_HEADER_SIZE + size, .data = message});
 }
 
 // the next attribute, which has to be there
@@ -153,15 +165,19 @@ static void test_reader_requires_what_class_and_method_call_for() {
       read_all(STUN_CLASS_INDICATION, STUN_METHOD_BINDING, 0, software));
 }
 
-// the attribute in `data`, which has to parse
-static stun_attribute_t parse_one(size_t size, uint8_t const data[]) {
+// the attribute in `data`, which has to parse as `type`
+static stun_attribute_t
+parse_one(stun_attribute_type_t type, size_t size, uint8_t const data[]) {
   auto it = reader(STUN_CLASS_REQUEST, STUN_METHOD_BINDING, size, data);
-  return read_attribute(&it);
+  auto const attribute = read_attribute(&it);
+  TEST_ASSERT_EQUAL(type, attribute.type);
+  return attribute;
 }
 
 static void test_attribute_xor_mapped_address_v4() {
   uint8_t const data[] = {XOR_MAPPED_ADDRESS_V4};
-  auto const attribute = parse_one(sizeof(data), data);
+  auto const attribute =
+      parse_one(STUN_ATTRIBUTE_XOR_MAPPED_ADDRESS, sizeof(data), data);
 
   uint8_t const ip[16] = {[10] = 0xFF, 0xFF, 192, 0, 2, 1};
   TEST_ASSERT_EQUAL_UINT8_ARRAY(ip, attribute.xor_mapped_address.ip.addr, 16);
@@ -170,7 +186,8 @@ static void test_attribute_xor_mapped_address_v4() {
 
 static void test_attribute_xor_mapped_address_v6() {
   uint8_t const data[] = {XOR_MAPPED_ADDRESS_V6};
-  auto const attribute = parse_one(sizeof(data), data);
+  auto const attribute =
+      parse_one(STUN_ATTRIBUTE_XOR_MAPPED_ADDRESS, sizeof(data), data);
 
   uint8_t const ip[16] = {0x20, 0x01, 0x0D, 0xB8, 0x12, 0x34, 0x56, 0x78,
                           0x00, 0x11, 0x22, 0x33, 0x44, 0x55, 0x66, 0x77};
@@ -189,18 +206,22 @@ static void test_attribute_xor_mapped_address_invalid() {
                     read_request(sizeof(short_value), short_value));
 }
 
+// the code of the ERROR-CODE in `data`, which has to parse
+static uint16_t error_code_of(size_t size, uint8_t const data[]) {
+  return parse_one(STUN_ATTRIBUTE_ERROR_CODE, size, data).error_code;
+}
+
 static void test_attribute_error_code() {
   uint8_t const bad_request[] = {ERROR_CODE_400};
-  TEST_ASSERT_EQUAL_UINT16(
-      400, parse_one(sizeof(bad_request), bad_request).error_code);
+  TEST_ASSERT_EQUAL_UINT16(400,
+                           error_code_of(sizeof(bad_request), bad_request));
 
   // the reserved bits are ignored, and the reason phrase can be empty
   uint8_t const reserved[] = {0x00, 0x09, 0, 4, 0xFF, 0xFF, 0xF8 | 6, 99};
-  TEST_ASSERT_EQUAL_UINT16(699,
-                           parse_one(sizeof(reserved), reserved).error_code);
+  TEST_ASSERT_EQUAL_UINT16(699, error_code_of(sizeof(reserved), reserved));
 
   uint8_t const lowest[] = {0x00, 0x09, 0, 4, 0, 0, 3, 0};
-  TEST_ASSERT_EQUAL_UINT16(300, parse_one(sizeof(lowest), lowest).error_code);
+  TEST_ASSERT_EQUAL_UINT16(300, error_code_of(sizeof(lowest), lowest));
 }
 
 static void test_attribute_error_code_invalid() {
