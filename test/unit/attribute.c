@@ -242,15 +242,71 @@ static void test_attribute_error_code_invalid() {
                     read_request(sizeof(too_short), too_short));
 }
 
+// a FINGERPRINT that matches the zeroed header alone
+#define FINGERPRINT_OF_HEADER 0x80, 0x28, 0, 4, 0x5C, 0x81, 0xCE, 0xC3
+
+static void test_attribute_fingerprint() {
+  uint8_t const alone[] = {FINGERPRINT_OF_HEADER};
+  auto it =
+      reader(STUN_CLASS_REQUEST, STUN_METHOD_BINDING, sizeof(alone), alone);
+  TEST_ASSERT_EQUAL(STUN_ATTRIBUTE_FINGERPRINT, read_attribute(&it).type);
+  TEST_ASSERT_EQUAL(STUN_ATTRIBUTE_READ_END,
+                    stun_attribute_reader_next(&it).status);
+
+  // covering the attributes before it too
+  uint8_t const last[] = {SOFTWARE, 0x80, 0x28, 0, 4, 0x19, 0x84, 0x42, 0x54};
+  it = reader(STUN_CLASS_REQUEST, STUN_METHOD_BINDING, sizeof(last), last);
+  expect_unknown(read_attribute(&it), 0x8022);
+  TEST_ASSERT_EQUAL(STUN_ATTRIBUTE_FINGERPRINT, read_attribute(&it).type);
+  TEST_ASSERT_EQUAL(STUN_ATTRIBUTE_READ_END,
+                    stun_attribute_reader_next(&it).status);
+}
+
+static void test_attribute_fingerprint_mismatch() {
+  uint8_t const flipped[] = {0x80, 0x28, 0, 4, 0x5C, 0x81, 0xCE, 0xC2};
+  TEST_ASSERT_EQUAL(STUN_ATTRIBUTE_READ_NOT_STUN,
+                    read_request(sizeof(flipped), flipped));
+
+  // what matches the header alone doesn't once SOFTWARE comes before it
+  uint8_t const preceded[] = {SOFTWARE, FINGERPRINT_OF_HEADER};
+  TEST_ASSERT_EQUAL(STUN_ATTRIBUTE_READ_NOT_STUN,
+                    read_request(sizeof(preceded), preceded));
+}
+
+static void test_attribute_fingerprint_invalid() {
+  uint8_t const too_short[] = {0x80, 0x28, 0, 2, 0x5C, 0x81, 0, 0};
+  TEST_ASSERT_EQUAL(STUN_ATTRIBUTE_READ_INVALID,
+                    read_request(sizeof(too_short), too_short));
+
+  uint8_t const too_long[] = {
+      0x80, 0x28, 0, 8, 0x5C, 0x81, 0xCE, 0xC3, 0, 0, 0, 0,
+  };
+  TEST_ASSERT_EQUAL(STUN_ATTRIBUTE_READ_INVALID,
+                    read_request(sizeof(too_long), too_long));
+}
+
+static void test_reader_nothing_after_fingerprint() {
+  // not even an optional attribute
+  uint8_t const data[] = {FINGERPRINT_OF_HEADER, SOFTWARE};
+  auto it = reader(STUN_CLASS_REQUEST, STUN_METHOD_BINDING, sizeof(data), data);
+  TEST_ASSERT_EQUAL(STUN_ATTRIBUTE_FINGERPRINT, read_attribute(&it).type);
+  TEST_ASSERT_EQUAL(STUN_ATTRIBUTE_READ_INVALID,
+                    stun_attribute_reader_next(&it).status);
+}
+
 void attribute_tests() {
   RUN_TEST(test_reader_reads_in_order);
   RUN_TEST(test_reader_no_attributes);
   RUN_TEST(test_reader_rejects_bad_framing);
   RUN_TEST(test_reader_unknown_types);
   RUN_TEST(test_reader_requires_what_class_and_method_call_for);
+  RUN_TEST(test_reader_nothing_after_fingerprint);
   RUN_TEST(test_attribute_xor_mapped_address_v4);
   RUN_TEST(test_attribute_xor_mapped_address_v6);
   RUN_TEST(test_attribute_xor_mapped_address_invalid);
   RUN_TEST(test_attribute_error_code);
   RUN_TEST(test_attribute_error_code_invalid);
+  RUN_TEST(test_attribute_fingerprint);
+  RUN_TEST(test_attribute_fingerprint_mismatch);
+  RUN_TEST(test_attribute_fingerprint_invalid);
 }

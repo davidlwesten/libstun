@@ -10,6 +10,7 @@ function(stun_add_library target)
       agent.c
       attribute.c
       attributes/error_code.c
+      attributes/fingerprint.c
       attributes/xor_mapped_address.c
       crc32.c
       message.c

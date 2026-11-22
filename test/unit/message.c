@@ -175,6 +175,23 @@ static void test_message_rejects_invalid_attributes() {
                     parse(sizeof(success), success).status);
 }
 
+// the FINGERPRINT of SUCCESS(20) followed by XOR_MAPPED_ADDRESS_V4
+#define FINGERPRINT 0x80, 0x28, 0, 4, 0x7D, 0x28, 0x1F, 0x59
+
+static void test_message_fingerprint() {
+  uint8_t data[] = {SUCCESS(20), XOR_MAPPED_ADDRESS_V4, FINGERPRINT};
+  auto const parsed = parse(sizeof(data), data);
+  TEST_ASSERT_EQUAL(STUN_MESSAGE_PARSE_VALID, parsed.status);
+  TEST_ASSERT_TRUE(
+      stun_message_find_attribute(&parsed.message, STUN_ATTRIBUTE_FINGERPRINT)
+          .has_value);
+
+  // and one that doesn't match isn't STUN
+  data[sizeof(data) - 1] ^= 1;
+  TEST_ASSERT_EQUAL(STUN_MESSAGE_PARSE_NOT_STUN,
+                    parse(sizeof(data), data).status);
+}
+
 void message_tests() {
   RUN_TEST(test_message_write);
   RUN_TEST(test_message_write_interleaves_class_and_method);
@@ -186,4 +203,5 @@ void message_tests() {
   RUN_TEST(test_message_find_attribute);
   RUN_TEST(test_message_no_attributes);
   RUN_TEST(test_message_rejects_invalid_attributes);
+  RUN_TEST(test_message_fingerprint);
 }

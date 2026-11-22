@@ -26,3 +26,12 @@ stun_attribute_parse_error_code(stun_wire_attribute_t const *attribute,
 stun_attribute_read_result_t
 stun_attribute_parse_xor_mapped_address(stun_wire_attribute_t const *attribute,
                                         stun_attribute_reader_t const *reader);
+
+/**
+ * @brief Parse a FINGERPRINT, which has to match the message up to it
+ *
+ * @returns STUN_ATTRIBUTE_READ_NOT_STUN if it doesn't
+ */
+stun_attribute_read_result_t
+stun_attribute_parse_fingerprint(stun_wire_attribute_t const *attribute,
+                                 stun_attribute_reader_t const *reader);

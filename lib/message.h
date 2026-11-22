@@ -24,7 +24,8 @@ typedef struct stun_message {
 } stun_message_t;
 
 typedef enum stun_message_parse_status {
-  /// Not a STUN message, e.g. another protocol on the same socket
+  /// Not a STUN message, e.g. another protocol on the same socket, or one
+  /// whose FINGERPRINT doesn't match
   STUN_MESSAGE_PARSE_NOT_STUN = 0,
   /// A STUN message we can't accept, e.g. with a comprehension-required
   /// attribute we don't know, a known one that doesn't parse, or without

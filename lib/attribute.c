@@ -25,6 +25,10 @@ static descriptor_t const DESCRIPTORS[STUN_ATTRIBUTE_TYPE_COUNT] = {
         {
             stun_attribute_parse_xor_mapped_address,
         },
+    [STUN_ATTRIBUTE_FINGERPRINT] =
+        {
+            stun_attribute_parse_fingerprint,
+        },
 };
 
 // which of our types a type on the wire is
@@ -34,6 +38,8 @@ static stun_attribute_type_t type_from_wire(uint16_t wire_type) {
     return STUN_ATTRIBUTE_ERROR_CODE;
   case STUN_WIRE_ATTRIBUTE_TYPE_XOR_MAPPED_ADDRESS:
     return STUN_ATTRIBUTE_XOR_MAPPED_ADDRESS;
+  case STUN_WIRE_ATTRIBUTE_TYPE_FINGERPRINT:
+    return STUN_ATTRIBUTE_FINGERPRINT;
   default:
     return STUN_ATTRIBUTE_UNKNOWN;
   }
@@ -98,6 +104,11 @@ stun_attribute_reader_next(stun_attribute_reader_t *reader) {
     }
 
     return (stun_attribute_read_result_t){.status = STUN_ATTRIBUTE_READ_END};
+  }
+
+  // nothing may follow a FINGERPRINT
+  if (reader->seen & seen_bit(STUN_ATTRIBUTE_FINGERPRINT)) {
+    return STUN_INVALID_READ_RESULT;
   }
 
   // frame the attribute at `offset`: its type and length come first, and the

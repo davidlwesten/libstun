@@ -18,6 +18,8 @@ typedef enum stun_attribute_type {
   STUN_ATTRIBUTE_UNKNOWN = 0,
   STUN_ATTRIBUTE_ERROR_CODE,
   STUN_ATTRIBUTE_XOR_MAPPED_ADDRESS,
+  /// Carries no value: reading it already checked it
+  STUN_ATTRIBUTE_FINGERPRINT,
   /// Not a type, but how many there are
   STUN_ATTRIBUTE_TYPE_COUNT,
 } stun_attribute_type_t;
@@ -48,9 +50,10 @@ typedef struct stun_optional_attribute {
  *
  * Parses each one, and checks the message against the rules for its
  * attributes as it goes: no attribute may fail to decode or parse, none of the
- * comprehension-required ones may be of a type we don't know, and the message
- * has to carry what its class and method call for (e.g. an error response an
- * ERROR-CODE, a Binding success response an XOR-MAPPED-ADDRESS).
+ * comprehension-required ones may be of a type we don't know, nothing may
+ * follow a FINGERPRINT, and the message has to carry what its class and method
+ * call for (e.g. an error response an ERROR-CODE, a Binding success response
+ * an XOR-MAPPED-ADDRESS).
  *
  * This is how stun_message_parse checks a message. To read the attributes of
  * one it parsed, use stun_message_attributes, which can't fail.
@@ -69,6 +72,8 @@ typedef struct stun_attribute_reader {
 typedef enum stun_attribute_read_status {
   /// The message breaks one of the rules
   STUN_ATTRIBUTE_READ_INVALID = 0,
+  /// It isn't a STUN message after all: its FINGERPRINT doesn't match
+  STUN_ATTRIBUTE_READ_NOT_STUN,
   /// The next attribute was read
   STUN_ATTRIBUTE_READ_ATTRIBUTE,
   /// After the last attribute, and the message follows the rules

@@ -23,6 +23,7 @@ constexpr uint32_t STUN_WIRE_MAGIC_COOKIE = 0x2112A442;
 enum stun_wire_attribute_type : uint16_t {
     STUN_WIRE_ATTRIBUTE_TYPE_ERROR_CODE         = 9,
     STUN_WIRE_ATTRIBUTE_TYPE_XOR_MAPPED_ADDRESS = 32,
+    STUN_WIRE_ATTRIBUTE_TYPE_FINGERPRINT        = 32808,
 };
 
 /* enum Family : u8 */
@@ -115,6 +116,15 @@ struct stun_wire_xor_mapped_address {
 constexpr size_t STUN_WIRE_XOR_MAPPED_ADDRESS_MIN_SIZE = 8;
 constexpr size_t STUN_WIRE_XOR_MAPPED_ADDRESS_MAX_SIZE = 20;
 
+/* message Fingerprint { crc: u32; } */
+struct stun_wire_fingerprint {
+    uint32_t crc;
+};
+
+/* Size limits of an encoded Fingerprint, in bytes. */
+constexpr size_t STUN_WIRE_FINGERPRINT_MIN_SIZE = 4;
+constexpr size_t STUN_WIRE_FINGERPRINT_MAX_SIZE = 4;
+
 /* message ErrorCode { _: u21; class: u3; number: u8; reason: u8[..]; } */
 struct stun_wire_error_code {
     uint8_t class;
@@ -151,6 +161,20 @@ stun_wire_status stun_wire_xor_mapped_address_encode(
 /* Exact number of bytes stun_wire_xor_mapped_address_encode will write, if it succeeds. */
 size_t stun_wire_xor_mapped_address_encoded_size(
     const struct stun_wire_xor_mapped_address *in);
+
+/* Decode one Fingerprint. Views in *out borrow buf: keep buf alive and
+ * unchanged while using them. */
+stun_wire_status stun_wire_fingerprint_decode(
+    struct stun_wire_fingerprint *out, const uint8_t *buf, size_t len);
+
+/* Encode into buf[0..cap). On STUN_WIRE_OK, *written is the encoded length. */
+stun_wire_status stun_wire_fingerprint_encode(
+    const struct stun_wire_fingerprint *in, uint8_t *buf, size_t cap,
+    size_t *written);
+
+/* Exact number of bytes stun_wire_fingerprint_encode will write, if it succeeds. */
+size_t stun_wire_fingerprint_encoded_size(
+    const struct stun_wire_fingerprint *in);
 
 /* Decode one ErrorCode. Views in *out borrow buf: keep buf alive and
  * unchanged while using them. */

@@ -45,6 +45,10 @@ stun_message_parse_result_t stun_message_parse(const_view_t datagram) {
     read = stun_attribute_reader_next(&reader);
   } while (read.status == STUN_ATTRIBUTE_READ_ATTRIBUTE);
 
+  if (read.status == STUN_ATTRIBUTE_READ_NOT_STUN) {
+    return (stun_message_parse_result_t){.status = STUN_MESSAGE_PARSE_NOT_STUN};
+  }
+
   if (read.status == STUN_ATTRIBUTE_READ_INVALID) {
     return (stun_message_parse_result_t){
         .status = STUN_MESSAGE_PARSE_INVALID,
@@ -99,7 +103,8 @@ stun_attribute_next(stun_attribute_iterator_t *iterator) {
 
   auto const read = stun_attribute_reader_next(&iterator->reader);
   // stun_message_parse already read the whole message
-  assert(read.status != STUN_ATTRIBUTE_READ_INVALID);
+  assert(read.status == STUN_ATTRIBUTE_READ_ATTRIBUTE ||
+         read.status == STUN_ATTRIBUTE_READ_END);
   return (stun_optional_attribute_t){
       .has_value = read.status == STUN_ATTRIBUTE_READ_ATTRIBUTE,
       .value = read.attribute,

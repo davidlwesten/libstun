@@ -99,6 +99,10 @@ static void walk_xor_mapped_address(const struct stun_wire_xor_mapped_address *v
     }
 }
 
+static void walk_fingerprint(const struct stun_wire_fingerprint *v) {
+    (void)v;
+}
+
 static void walk_error_code(const struct stun_wire_error_code *v) {
     walk_bytes(&v->reason);
 }
@@ -148,6 +152,10 @@ static void build_xor_mapped_address(struct src *in, struct stun_wire_xor_mapped
         build_ipv6(in, &v->address.ipv6);
         break;
     }
+}
+
+static void build_fingerprint(struct src *in, struct stun_wire_fingerprint *v) {
+    v->crc = (uint32_t)(take_u32(in) & 0xffffffff);
 }
 
 static void build_error_code(struct src *in, struct stun_wire_error_code *v) {
@@ -263,6 +271,56 @@ static void encode_xor_mapped_address(const uint8_t *data, size_t len) {
     free(b);
 }
 
+/* Decode then encode must give back the input exactly. */
+static void decode_fingerprint(const uint8_t *buf, size_t size) {
+    struct stun_wire_fingerprint msg;
+    if (stun_wire_fingerprint_decode(&msg, buf, size) != STUN_WIRE_OK)
+        return;
+    walk_fingerprint(&msg);
+    if (stun_wire_fingerprint_encoded_size(&msg) != size)
+        abort();
+    uint8_t *a = malloc(size != 0 ? size : 1);
+    uint8_t *b = malloc(size != 0 ? size : 1);
+    size_t n = 0;
+    if (stun_wire_fingerprint_encode(&msg, a, size, &n) != STUN_WIRE_OK || n != size)
+        abort();
+    if (size != 0 &&
+        stun_wire_fingerprint_encode(&msg, b, size - 1, &n) != STUN_WIRE_NOSPACE)
+        abort();
+    if (memcmp(a, buf, size) != 0)
+        abort();
+    free(a);
+    free(b);
+}
+
+/* Build a valid Fingerprint from the input, then encode it: it must take
+ * exactly encoded_size bytes, decode, and encode to identical bytes. */
+static void encode_fingerprint(const uint8_t *data, size_t len) {
+    struct src in = { data, data + len };
+    struct stun_wire_fingerprint msg = {};
+    arena_used = 0;
+    build_fingerprint(&in, &msg);
+    size_t size = stun_wire_fingerprint_encoded_size(&msg);
+    size_t n = 0;
+    if (size > STUN_WIRE_FINGERPRINT_MAX_SIZE) {
+        if (stun_wire_fingerprint_encode(&msg, NULL, 0, &n) != STUN_WIRE_INVALID)
+            abort();
+        return;
+    }
+    uint8_t *a = malloc(size != 0 ? size : 1);
+    uint8_t *b = malloc(size != 0 ? size : 1);
+    if (stun_wire_fingerprint_encode(&msg, a, size, &n) != STUN_WIRE_OK || n != size)
+        abort();
+    struct stun_wire_fingerprint back;
+    if (stun_wire_fingerprint_decode(&back, a, size) != STUN_WIRE_OK)
+        abort();
+    if (stun_wire_fingerprint_encode(&back, b, size, &n) != STUN_WIRE_OK || n != size ||
+        memcmp(a, b, size) != 0)
+        abort();
+    free(a);
+    free(b);
+}
+
 /* ErrorCode has reserved fields or padding, which decode ignores and
  * encode writes as zeros, so the first encode may differ from the
  * input there. It must still have the same length, decode again, and
@@ -324,6 +382,8 @@ int LLVMFuzzerTestOneInput(const uint8_t *data, size_t size) {
     encode_message(buf, size);
     decode_xor_mapped_address(buf, size);
     encode_xor_mapped_address(buf, size);
+    decode_fingerprint(buf, size);
+    encode_fingerprint(buf, size);
     decode_error_code(buf, size);
     encode_error_code(buf, size);
     free(buf);

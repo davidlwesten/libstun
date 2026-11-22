@@ -454,6 +454,47 @@ size_t stun_wire_xor_mapped_address_encoded_size(
     return stun_wire_xor_mapped_address_size(in);
 }
 
+/* ---- message Fingerprint ------------------------------------------------ */
+
+static bool stun_wire_fingerprint_read(struct stun_wire_rd *r,
+                                       struct stun_wire_fingerprint *out) {
+    return stun_wire_rd_u32(r, &out->crc);
+}
+
+static stun_wire_status stun_wire_fingerprint_write(
+    struct stun_wire_wr *w, const struct stun_wire_fingerprint *in) {
+    return stun_wire_wr_u32(w, in->crc);
+}
+
+static size_t stun_wire_fingerprint_size(
+    const struct stun_wire_fingerprint *in) {
+    (void)in;
+    return 4;
+}
+
+stun_wire_status stun_wire_fingerprint_decode(
+    struct stun_wire_fingerprint *out, const uint8_t *buf, size_t len) {
+    struct stun_wire_rd r = { buf, len != 0 ? buf + len : buf };
+    /* The message must account for every byte of the input. */
+    if (!stun_wire_fingerprint_read(&r, out) || r.p != r.end)
+        return STUN_WIRE_INVALID;
+    return STUN_WIRE_OK;
+}
+
+stun_wire_status stun_wire_fingerprint_encode(
+    const struct stun_wire_fingerprint *in, uint8_t *buf, size_t cap,
+    size_t *written) {
+    struct stun_wire_wr w = { buf, cap != 0 ? buf + cap : buf };
+    STUN_WIRE_TRY(stun_wire_fingerprint_write(&w, in));
+    *written = (size_t)(w.p - buf);
+    return STUN_WIRE_OK;
+}
+
+size_t stun_wire_fingerprint_encoded_size(
+    const struct stun_wire_fingerprint *in) {
+    return stun_wire_fingerprint_size(in);
+}
+
 /* ---- message ErrorCode -------------------------------------------------- */
 
 static bool stun_wire_error_code_read(struct stun_wire_rd *r,
