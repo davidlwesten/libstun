@@ -1,6 +1,7 @@
 stun_add_test_executable(unit_tests
   agent.c
   attribute.c
+  crc32.c
   main.c
   message.c
   retransmit.c)

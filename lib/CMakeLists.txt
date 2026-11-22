@@ -11,6 +11,7 @@ function(stun_add_library target)
       attribute.c
       attributes/error_code.c
       attributes/xor_mapped_address.c
+      crc32.c
       message.c
       retransmit.c
       stun_wire_gen.c)
