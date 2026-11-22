@@ -1,2 +1,3 @@
 lib/stun_wire_gen.*
 test/stun_wire_fuzz.c
+lib/crc32.c

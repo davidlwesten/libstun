@@ -112,3 +112,6 @@ port:
 ## License
 
 MIT, see [LICENSE](LICENSE).
+
+`lib/crc32.c` comes from RFC 1952's sample CRC code and keeps that RFC's
+copyright notice, which has to be passed on with it.
